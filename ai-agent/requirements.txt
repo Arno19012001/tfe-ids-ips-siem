@@ -1,0 +1,10 @@
+# Agent IA — TFE IDS/IPS & SIEM
+# Python 3.11+
+
+langchain>=0.2.0
+langchain-ollama>=0.1.0
+scikit-learn>=1.4.0       # Isolation Forest (MVP)
+numpy>=1.26.0
+pandas>=2.2.0
+requests>=2.31.0
+python-dotenv>=1.0.0
