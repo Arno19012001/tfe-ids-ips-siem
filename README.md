@@ -98,14 +98,21 @@ workstation-it
 
 ```
 tfe-ids-ips-siem/
-├── docs/          # Documents académiques (CDC, analyse, schéma)
-├── ansible/       # Playbooks de déploiement
-├── suricata/      # Configuration IDS/IPS et règles
-├── wazuh/         # Configuration SIEM
-├── ai-agent/      # Agent IA LangChain + Ollama (3 itérations)
-├── scenarios/     # Scripts d'attaque et résultats
-├── gns3/          # Topologie réseau
-└── report/        # Sources LaTeX du rapport final
+├── images/                  # Images Docker du laboratoire
+│   ├── suricata-sensor/     #   Sensor inline NFQueue (Debian 12)
+│   ├── web-eurostar/        #   Serveur web Apache2 + MariaDB (10.0.10.10)
+│   └── ssh-eurostar/        #   Serveur SSH OpenSSH (10.0.10.20)
+├── ansible/                 # Playbooks de déploiement
+├── wazuh/                   # Configuration SIEM
+├── ai-agent/                # Agent IA LangChain + Ollama (3 itérations)
+├── scenarios/               # Scripts d'attaque et résultats
+│   ├── A_nmap/
+│   ├── B_hydra/
+│   ├── C_sqlmap/
+│   └── D_metasploit/
+├── gns3/                    # Topologie réseau GNS3
+├── docs/                    # Documents académiques (CDC, analyse, schéma)
+└── report/                  # Sources LaTeX du rapport final
 ```
 
 ---
