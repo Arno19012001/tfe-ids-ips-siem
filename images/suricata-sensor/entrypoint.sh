@@ -39,6 +39,14 @@ fi
 iptables -I FORWARD -m physdev --physdev-is-bridged -j NFQUEUE --queue-num 0
 echo "[entrypoint] Règle NFQueue activée (FORWARD -> queue 0)"
 
-# --- Lancement Suricata en mode IPS inline ---
+# --- Lancement Suricata en mode IPS inline (arrière-plan) ---
 echo "[entrypoint] Démarrage Suricata en mode IPS inline (NFQueue 0)..."
-exec suricata -c /etc/suricata/suricata.yaml -q 0
+suricata -c /etc/suricata/suricata.yaml -q 0 &
+
+# Attendre que Suricata soit prêt avant de rendre la main
+sleep 2
+echo "[entrypoint] Suricata démarré. Console interactive disponible."
+echo "[entrypoint] Logs : tail -f /var/log/suricata/eve.json"
+
+# Shell interactif (processus principal — garde le conteneur actif)
+exec /bin/bash
