@@ -21,7 +21,7 @@ stats:
   enabled: yes
   interval: 30
 
-# --- Outputs : EVE JSON (intégration Wazuh) ---
+# --- Outputs : EVE JSON (intégration Wazuh) + logs ---
 outputs:
   - eve-log:
       enabled: yes
@@ -49,6 +49,12 @@ outputs:
         - ssh: {}
         - flow: {}
         - netflow: {}
+
+  # Logger de statistiques (performances Suricata)
+  - stats:
+      enabled: yes
+      filename: /var/log/suricata/stats.log
+      append: yes
 
 # --- Règles de détection ---
 default-rule-path: /etc/suricata/rules
