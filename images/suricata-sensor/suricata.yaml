@@ -5,6 +5,7 @@
 # Suricata — Configuration IPS inline NFQueue
 # Contexte : TFE Eurostar — suricata-sensor (10.0.30.20)
 # Mode     : inline NFQueue sur br0 (eth0 <-> eth1)
+# Version  : Suricata 7.0.x
 # =============================================================
 
 # --- Mode NFQueue (IPS inline) ---
@@ -13,8 +14,12 @@ nfq:
   repeat-mark: 1        # évite la boucle infinie (paquet déjà traité)
   repeat-mask: 1
   route-queue: 2        # file de réinsertion après traitement
-  batchcount: 20        # paquets traités par lot (performance)
   fail-open: yes        # si Suricata plante -> fail-open (trafic passe)
+
+# --- Statistiques globales (Suricata 7.x) ---
+stats:
+  enabled: yes
+  interval: 30
 
 # --- Outputs : EVE JSON (intégration Wazuh) ---
 outputs:
@@ -44,11 +49,6 @@ outputs:
         - ssh: {}
         - flow: {}
         - netflow: {}
-
-  - stats:
-      enabled: yes
-      filename: /var/log/suricata/stats.log
-      interval: 30
 
 # --- Règles de détection ---
 default-rule-path: /etc/suricata/rules
