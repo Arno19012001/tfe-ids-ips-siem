@@ -1,0 +1,7 @@
+[Match]
+Type=ether
+
+[Network]
+Address=10.0.30.10/24
+Gateway=10.0.30.1
+DNS=10.0.30.1
