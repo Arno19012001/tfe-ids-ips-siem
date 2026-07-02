@@ -13,7 +13,14 @@ if [ -z "$DISPLAY" ]; then
 fi
 sleep 3
 
-# ── Lancement de Firefox ESR ───────────────────────────────────
+# ── Gestionnaire de fenêtres léger ─────────────────────────────
+fluxbox &
+sleep 2
+
+# ── Terminal ────────────────────────────────────────────────────
+xterm -geometry 100x30+0+0 &
+
+# ── Navigateur ────────────────────────────────────────────────
 firefox-esr --no-remote &
 
 # Garde le conteneur actif

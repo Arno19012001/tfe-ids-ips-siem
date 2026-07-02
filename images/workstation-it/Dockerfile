@@ -2,6 +2,8 @@ FROM debian:12
 
 RUN apt-get update && apt-get install -y \
     firefox-esr \
+    fluxbox \
+    xterm \
     iproute2 \
     iputils-ping \
     net-tools \
