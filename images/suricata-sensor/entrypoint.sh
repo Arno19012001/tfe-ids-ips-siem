@@ -48,5 +48,18 @@ sleep 2
 echo "[entrypoint] Suricata démarré. Console interactive disponible."
 echo "[entrypoint] Logs : tail -f /var/log/suricata/eve.json"
 
+# --- Enrôlement automatique de l'agent Wazuh (auto-enrollment via wazuh-authd) ---
+WAZUH_MANAGER_IP="10.0.30.10"
+
+if [ ! -s /var/ossec/etc/client.keys ]; then
+    echo "[entrypoint] Agent Wazuh non enregistré, enrollment vers $WAZUH_MANAGER_IP..."
+    /var/ossec/bin/agent-auth -m "$WAZUH_MANAGER_IP" -A suricata-sensor
+else
+    echo "[entrypoint] Agent Wazuh déjà enregistré (client.keys présent)."
+fi
+
+echo "[entrypoint] Démarrage de l'agent Wazuh..."
+/var/ossec/bin/wazuh-control start
+
 # Shell interactif (processus principal — garde le conteneur actif)
 exec /bin/bash
