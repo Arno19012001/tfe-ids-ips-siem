@@ -31,7 +31,8 @@ RUN apt-get update && apt-get install -y curl gnupg \
 
 # --- Config statique : adresse du Manager + collecte EVE JSON ---
 RUN sed -i "s#<address>MANAGER_IP</address>#<address>10.0.30.10</address>#" /var/ossec/etc/ossec.conf \
-    && sed -i "s#</ossec_config>#  <localfile>\n    <log_format>json</log_format>\n    <location>/var/log/suricata/eve.json</location>\n  </localfile>\n</ossec_config>#" /var/ossec/etc/ossec.conf
+    && LASTLINE=$(grep -n "</ossec_config>" /var/ossec/etc/ossec.conf | tail -1 | cut -d: -f1) \
+    && sed -i "${LASTLINE}s#</ossec_config>#  <localfile>\n    <log_format>json</log_format>\n    <location>/var/log/suricata/eve.json</location>\n  </localfile>\n</ossec_config>#" /var/ossec/etc/ossec.conf
 
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY suricata.yaml /etc/suricata/suricata.yaml
