@@ -59,7 +59,8 @@ outputs:
 # --- Règles de détection ---
 default-rule-path: /etc/suricata/rules
 rule-files:
-  - suricata.rules
+  - base.rules
+  - scenarios/scenario_A_nmap.rules
 
 # --- Variables réseau ---
 vars:

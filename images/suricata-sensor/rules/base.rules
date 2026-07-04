@@ -1,0 +1,7 @@
+# ============================================================
+# Règles de base — suricata-sensor (10.0.30.20)
+# Règle de validation du bon fonctionnement du capteur (test ICMP)
+# Anciennement générée au runtime par entrypoint.sh — désormais
+# versionnée pour garantir la reproductibilité (cf. Issue #12).
+# ============================================================
+alert icmp any any -> any any (msg:"ICMP ping detected"; sid:1000001; rev:1;)

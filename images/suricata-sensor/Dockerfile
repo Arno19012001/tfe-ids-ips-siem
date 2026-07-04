@@ -36,6 +36,7 @@ RUN sed -i "s#<address>MANAGER_IP</address>#<address>10.0.30.10</address>#" /var
 
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY suricata.yaml /etc/suricata/suricata.yaml
+COPY rules/ /etc/suricata/rules/
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
 CMD ["/usr/local/bin/entrypoint.sh"]
