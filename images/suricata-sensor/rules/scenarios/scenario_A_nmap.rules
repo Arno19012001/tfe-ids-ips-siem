@@ -6,58 +6,21 @@
 # Mode : alert-only (validation IDS, aucun blocage à ce stade)
 # Cible : $DMZ_NET (10.0.10.0/24) — seul segment traversant
 # effectivement le pont inline Suricata (eth0<->eth1)
+#
+# NB : chaque règle DOIT tenir sur une seule ligne physique
+# (correction suite au crash du 2026-07-04 : "Signature missing
+# required value sid" causé par des règles multi-lignes sans
+# continuation "\").
 # ============================================================
 
 # --- Signature 1 : détection de balayage SYN (-sS) ---
-# Comportemental : volume de SYN sans complétion du handshake
-# depuis une même source, sur des ports variés, en peu de temps.
-alert tcp $EXTERNAL_NET any -> $DMZ_NET any (
-    msg:"SCENARIO_A Nmap SYN Scan Detected";
-    flow:stateless;
-    flags:S,12;
-    threshold:type both, track by_src, count 15, seconds 10;
-    classtype:attempted-recon;
-    metadata: scenario A, mitre_tactic TA0007_Discovery, mitre_technique T1046;
-    reference:url,attack.mitre.org/techniques/T1046/;
-    sid:1000101; rev:1;
-)
+alert tcp $EXTERNAL_NET any -> $DMZ_NET any (msg:"SCENARIO_A Nmap SYN Scan Detected"; flow:stateless; flags:S,12; threshold:type both, track by_src, count 15, seconds 10; classtype:attempted-recon; metadata: scenario A, mitre_tactic TA0007_Discovery, mitre_technique T1046; reference:url,attack.mitre.org/techniques/T1046/; sid:1000101; rev:1;)
 
-# --- Signature 2 : détection d'empreinte OS (-O, inclus dans -A) ---
-# Signature : Nmap envoie, pour l'OS fingerprinting, un nombre restreint
-# de sondes à combinaisons de flags TCP anormales (tests T2 et T3/T7 de
-# la méthode Nmap). Ces combinaisons n'apparaissent jamais dans du trafic
-# légitime : un seuil n'est pas nécessaire, un seul paquet est significatif.
-alert tcp $EXTERNAL_NET any -> $DMZ_NET any (
-    msg:"SCENARIO_A Nmap OS Fingerprint Probe - Null Flags (T2)";
-    flags:0;
-    classtype:attempted-recon;
-    metadata: scenario A, mitre_tactic TA0007_Discovery, mitre_technique T1046;
-    reference:url,attack.mitre.org/techniques/T1046/;
-    sid:1000102; rev:1;
-)
+# --- Signature 2 : détection d'empreinte OS (-O, inclus dans -A) — sonde T2 (Null flags) ---
+alert tcp $EXTERNAL_NET any -> $DMZ_NET any (msg:"SCENARIO_A Nmap OS Fingerprint Probe - Null Flags (T2)"; flags:0; classtype:attempted-recon; metadata: scenario A, mitre_tactic TA0007_Discovery, mitre_technique T1046; reference:url,attack.mitre.org/techniques/T1046/; sid:1000102; rev:1;)
 
-alert tcp $EXTERNAL_NET any -> $DMZ_NET any (
-    msg:"SCENARIO_A Nmap OS Fingerprint Probe - FIN/PSH/URG (T3-T7)";
-    flags:FPU;
-    classtype:attempted-recon;
-    metadata: scenario A, mitre_tactic TA0007_Discovery, mitre_technique T1046;
-    reference:url,attack.mitre.org/techniques/T1046/;
-    sid:1000103; rev:1;
-)
+# --- Signature 2 (suite) : sondes T3/T7 (FIN+PSH+URG) ---
+alert tcp $EXTERNAL_NET any -> $DMZ_NET any (msg:"SCENARIO_A Nmap OS Fingerprint Probe - FIN/PSH/URG (T3-T7)"; flags:FPU; classtype:attempted-recon; metadata: scenario A, mitre_tactic TA0007_Discovery, mitre_technique T1046; reference:url,attack.mitre.org/techniques/T1046/; sid:1000103; rev:1;)
 
 # --- Signature 3 : détection de la détection de service/version (-sV) ---
-# Comportemental : après la phase SYN, Nmap établit des connexions TCP
-# complètes vers chaque port jugé ouvert pour envoyer des sondes
-# applicatives (base nmap-service-probes). On détecte la multiplication
-# de connexions établies depuis une même source en fenêtre courte.
-# Seuil à AJUSTER empiriquement selon le nombre réel de ports ouverts
-# détectés dans le labo (web-eurostar:80, ssh-eurostar:22, metasploitable2:21/etc.).
-alert tcp $EXTERNAL_NET any -> $DMZ_NET any (
-    msg:"SCENARIO_A Nmap Service/Version Detection Probe";
-    flow:to_server,established;
-    threshold:type both, track by_src, count 3, seconds 10;
-    classtype:attempted-recon;
-    metadata: scenario A, mitre_tactic TA0007_Discovery, mitre_technique T1046;
-    reference:url,attack.mitre.org/techniques/T1046/;
-    sid:1000104; rev:1;
-)
+alert tcp $EXTERNAL_NET any -> $DMZ_NET any (msg:"SCENARIO_A Nmap Service/Version Detection Probe"; flow:to_server,established; threshold:type both, track by_src, count 3, seconds 10; classtype:attempted-recon; metadata: scenario A, mitre_tactic TA0007_Discovery, mitre_technique T1046; reference:url,attack.mitre.org/techniques/T1046/; sid:1000104; rev:1;)
