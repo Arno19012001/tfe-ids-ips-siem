@@ -1,0 +1,85 @@
+[*] Scénario A — Balayage réseau Nmap
+[*] Cible : 10.0.10.0/24
+[*] Début : sam 04 jui 2026 21:14:54 CEST
+[*] Phase 1 : découverte des hôtes actifs
+Starting Nmap 7.98 ( https://nmap.org ) at 2026-07-04 21:14 +0200
+Nmap scan report for 10.0.10.1
+Host is up (0.00080s latency).
+Nmap scan report for 10.0.10.10
+Host is up (0.0029s latency).
+Nmap scan report for 10.0.10.20
+Host is up (0.013s latency).
+Nmap scan report for 10.0.10.30
+Host is up (0.0037s latency).
+Nmap done: 256 IP addresses (4 hosts up) scanned in 9.90 seconds
+[*] Phase 2 : scan de ports et services
+Starting Nmap 7.98 ( https://nmap.org ) at 2026-07-04 21:15 +0200
+Nmap scan report for 10.0.10.10
+Host is up (0.0017s latency).
+Not shown: 65533 filtered tcp ports (no-response), 1 closed tcp port (reset)
+Some closed ports may be reported as filtered due to --defeat-rst-ratelimit
+PORT   STATE SERVICE VERSION
+80/tcp open  http    Apache httpd 2.4.67 ((Debian))
+
+Nmap scan report for 10.0.10.20
+Host is up (0.0014s latency).
+Not shown: 65534 filtered tcp ports (no-response)
+Some closed ports may be reported as filtered due to --defeat-rst-ratelimit
+PORT   STATE SERVICE VERSION
+22/tcp open  ssh     OpenSSH 9.2p1 Debian 2+deb12u10 (protocol 2.0)
+Service Info: OS: Linux; CPE: cpe:/o:linux:linux_kernel
+
+Nmap scan report for 10.0.10.30
+Host is up (0.0016s latency).
+Not shown: 65534 filtered tcp ports (no-response)
+Some closed ports may be reported as filtered due to --defeat-rst-ratelimit
+PORT   STATE SERVICE VERSION
+21/tcp open  ftp     vsftpd 2.3.4
+Service Info: OS: Unix
+
+Service detection performed. Please report any incorrect results at https://nmap.org/submit/ .
+Nmap done: 256 IP addresses (4 hosts up) scanned in 233.56 seconds
+[*] Phase 3 : détection OS
+Starting Nmap 7.98 ( https://nmap.org ) at 2026-07-04 21:18 +0200
+Nmap scan report for 10.0.10.1
+Host is up (0.00089s latency).
+All 1000 scanned ports on 10.0.10.1 are in ignored states.
+Not shown: 1000 filtered tcp ports (no-response)
+Too many fingerprints match this host to give specific OS details
+
+Nmap scan report for 10.0.10.10
+Host is up (0.0029s latency).
+Not shown: 998 filtered tcp ports (no-response)
+PORT    STATE  SERVICE
+80/tcp  open   http
+443/tcp closed https
+Aggressive OS guesses: IPFire 2.27 (Linux 5.15 - 6.1) (91%), Linux 4.19 - 5.15 (91%), Linux 4.15 (90%), Linux 5.4 (90%), Android TV OS 11 (Linux 4.19) (86%), IPFire 2.25 firewall (Linux 4.14) (86%), Linux 2.6.32 (86%), Linux 2.6.32 or 3.10 (86%), Linux 3.10 - 3.12 (86%), Linux 4.0 - 4.4 (86%)
+No exact OS matches for host (test conditions non-ideal).
+
+Nmap scan report for 10.0.10.20
+Host is up (0.0027s latency).
+Not shown: 999 filtered tcp ports (no-response)
+PORT   STATE SERVICE
+22/tcp open  ssh
+Warning: OSScan results may be unreliable because we could not find at least 1 open and 1 closed port
+Device type: general purpose|firewall
+Running (JUST GUESSING): Linux 4.X|5.X|6.X (91%), IPFire 2.X (90%)
+OS CPE: cpe:/o:linux:linux_kernel:4 cpe:/o:linux:linux_kernel:5 cpe:/o:ipfire:ipfire:2.27 cpe:/o:linux:linux_kernel:6.1
+Aggressive OS guesses: Linux 4.15 - 5.19 (91%), IPFire 2.27 (Linux 5.15 - 6.1) (90%), Linux 4.19 - 5.15 (90%), Linux 5.4 (87%), Linux 4.15 (86%)
+No exact OS matches for host (test conditions non-ideal).
+
+Nmap scan report for 10.0.10.30
+Host is up (0.0027s latency).
+Not shown: 999 filtered tcp ports (no-response)
+PORT   STATE SERVICE
+21/tcp open  ftp
+Warning: OSScan results may be unreliable because we could not find at least 1 open and 1 closed port
+Device type: general purpose|specialized|print server|switch|media device|broadband router
+Running (JUST GUESSING): Linux 2.6.X|2.4.X (97%), Google embedded (90%), HP embedded (90%), Philips embedded (90%), Linksys embedded (90%), Motorola embedded (90%), Western Digital embedded (89%)
+OS CPE: cpe:/o:linux:linux_kernel:2.6 cpe:/h:linksys:wrv200 cpe:/o:linux:linux_kernel:2.4.21 cpe:/o:linux:linux_kernel:2.6.18 cpe:/h:motorola:surfboard_sb6120 cpe:/h:motorola:surfboard_sb6141 cpe:/o:westerndigital:wd_tv cpe:/o:westerndigital:linux:2.6
+Aggressive OS guesses: Linux 2.6.15 - 2.6.26 (likely embedded) (97%), Linux 2.6.20 - 2.6.24 (97%), Linux 2.6.22 (94%), Linux 2.6.16 - 2.6.28 (92%), Linux 2.6.24 (91%), Linux 2.6.32 - 2.6.33 (91%), Linux 2.6.8 - 2.6.30 (91%), Linux 2.6.9 - 2.6.27 (91%), Linux 2.6.28 (90%), Google Mini search appliance (90%)
+No exact OS matches for host (test conditions non-ideal).
+
+OS detection performed. Please report any incorrect results at https://nmap.org/submit/ .
+Nmap done: 256 IP addresses (4 hosts up) scanned in 26.22 seconds
+[*] Fin : sam 04 jui 2026 21:19:24 CEST
