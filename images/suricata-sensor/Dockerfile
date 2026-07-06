@@ -34,6 +34,11 @@ RUN sed -i "s#<address>MANAGER_IP</address>#<address>10.0.30.10</address>#" /var
     && LASTLINE=$(grep -n "</ossec_config>" /var/ossec/etc/ossec.conf | tail -1 | cut -d: -f1) \
     && sed -i "${LASTLINE}s#</ossec_config>#  <localfile>\n    <log_format>json</log_format>\n    <location>/var/log/suricata/eve.json</location>\n  </localfile>\n</ossec_config>#" /var/ossec/etc/ossec.conf
 
+# --- Persistance de l'identité Wazuh (client.keys) au-delà d'un stop/start du nœud ---
+# GNS3 mappe automatiquement les volumes déclarés vers un dossier persistant du projet,
+# évitant un ré-enrôlement (et donc un conflit "Duplicate agent name") à chaque redémarrage.
+VOLUME ["/var/ossec/etc"]
+
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY suricata.yaml /etc/suricata/suricata.yaml
 COPY rules/ /etc/suricata/rules/
