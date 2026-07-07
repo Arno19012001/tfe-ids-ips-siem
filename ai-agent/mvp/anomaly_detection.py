@@ -1,16 +1,17 @@
 """
 anomaly_detection.py — Détection d'anomalies (Isolation Forest) sur trafic Suricata
-TFE IDS/IPS & SIEM — Issue #15 — v6 (split entraînement / validation / test)
+TFE IDS/IPS & SIEM — Issue #15 — v7 (calcul de features optimisé pour gros volumes)
 
 Historique : v1 (biais mesure alert/flow) -> v2 (temporel) -> v3 (diversité
 hôtes, échantillon trop petit) -> v4 (eve.json malveillant complet, 600 flux,
-entraînement sur profil de normalité) -> v5 (seuil empirique par maximisation
-du F1-score — mais choisi sur le même ensemble que celui utilisé pour
-l'évaluation, donc optimiste par construction) -> v6 : split en trois
-(entraînement du modèle / validation pour le choix du seuil / test final),
-et baseline bénin enrichi (diversité de chemins HTTP, 45 min au lieu de 25)
-pour disposer d'un échantillon suffisant pour ce split à trois voies sans
-écraser la robustesse statistique de chaque sous-ensemble.
+entraînement sur profil de normalité) -> v5 (seuil empirique F1, mais choisi
+sur le même ensemble que le test) -> v6 (split entraînement/validation/test,
+baseline enrichi 729 flux/45min — révèle un taux de FP réel de 77% sur le
+bénin, démontrant que le résultat v5 était en grande partie un artefact de
+l'évaluation) -> v7 : remplacement de la boucle O(n²) de calcul de diversité
+des hôtes de destination par une fenêtre glissante O(n) par groupe (deux
+pointeurs + compteur), nécessaire pour absorber le volume d'une capture de
+baseline de 12h (plusieurs milliers de flux attendus, contre 729 en v6).
 """
 
 import os
@@ -50,6 +51,40 @@ def load_flows_from_eve_json(eve_json_path: str, label: int, filter_src_ip: str 
     return pd.DataFrame(flows)
 
 
+def _distinct_dest_ip_sliding_window(group: pd.DataFrame, window_seconds: int = 60) -> np.ndarray:
+    """
+    Calcule, pour chaque ligne d'un groupe (déjà trié par ts), le nombre
+    d'adresses IP de destination distinctes contactées dans les `window_seconds`
+    précédentes — via une fenêtre glissante à deux pointeurs (O(n) amorti),
+    au lieu de reconstruire un masque sur tout le DataFrame à chaque ligne (O(n²)).
+    """
+    ts = group["ts"].to_numpy()
+    dest_ips = group["dest_ip"].to_numpy()
+    window = pd.Timedelta(seconds=window_seconds).to_numpy()
+
+    result = np.zeros(len(group), dtype=int)
+    counts = {}
+    distinct = 0
+    left = 0
+
+    for right in range(len(group)):
+        d = dest_ips[right]
+        counts[d] = counts.get(d, 0) + 1
+        if counts[d] == 1:
+            distinct += 1
+
+        while ts[right] - ts[left] > window:
+            dl = dest_ips[left]
+            counts[dl] -= 1
+            if counts[dl] == 0:
+                distinct -= 1
+            left += 1
+
+        result[right] = distinct
+
+    return result
+
+
 def build_features(df: pd.DataFrame):
     df = df.copy()
     for col in ["dest_port", "pkts_toserver", "pkts_toclient", "bytes_toserver", "bytes_toclient"]:
@@ -60,17 +95,14 @@ def build_features(df: pd.DataFrame):
     df["bytes_ratio"] = df["bytes_toserver"] / df["total_bytes"].replace(0, 1)
 
     df["ts"] = pd.to_datetime(df["start"], errors="coerce", utc=True)
-    df = df.sort_values("ts").reset_index(drop=True)
+    df = df.sort_values(["src_ip", "ts"]).reset_index(drop=True)
 
-    distinct_dest_ips = []
-    for _, row in df.iterrows():
-        mask_60s = (
-            (df["src_ip"] == row["src_ip"]) &
-            (df["ts"] >= row["ts"] - pd.Timedelta(seconds=60)) &
-            (df["ts"] <= row["ts"])
-        )
-        distinct_dest_ips.append(df.loc[mask_60s, "dest_ip"].nunique())
-    df["distinct_dest_ip_60s"] = distinct_dest_ips
+    # Fenêtre glissante calculée séparément par IP source (groupby), puis
+    # réassemblée dans l'ordre d'origine du DataFrame via l'index.
+    diversity = np.zeros(len(df), dtype=int)
+    for _, group in df.groupby("src_ip"):
+        diversity[group.index.to_numpy()] = _distinct_dest_ip_sliding_window(group)
+    df["distinct_dest_ip_60s"] = diversity
 
     feature_cols = [
         "dest_port", "is_wellknown_dport", "total_bytes",
@@ -141,7 +173,6 @@ if __name__ == "__main__":
     df_all = pd.concat([df_benin, df_attaque], ignore_index=True)
     df_all, feature_cols = build_features(df_all)
 
-    # --- Split en trois : 60% entraînement / 20% validation (seuil) / 20% test ---
     df_benin_shuf = df_all[df_all["label"] == 0].sample(frac=1, random_state=42).reset_index(drop=True)
     n = len(df_benin_shuf)
     split_train, split_val = int(n * 0.6), int(n * 0.8)
