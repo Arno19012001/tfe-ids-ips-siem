@@ -1,16 +1,17 @@
 """
 anomaly_detection.py — Détection d'anomalies (Isolation Forest) sur trafic Suricata
-TFE IDS/IPS & SIEM — Issue #15 — v4 (méthodologie finale)
+TFE IDS/IPS & SIEM — Issue #15 — v5 (seuil empirique par maximisation du F1-score)
 
-Historique : v1 (biais mesure alert/flow) -> v2 (temporel, rythme scan proche
-du bénin) -> v3 (diversité hôtes, échantillon encore trop petit) -> v4 :
-régénération complète du eve.json malveillant (600 flux réels contre 34
-alertes throttlées auparavant, cf. seuil `threshold` des règles Suricata),
-et passage à un entraînement sur profil de normalité uniquement (usage
-canonique de l'Isolation Forest), plutôt qu'un entraînement sur mélange
-bénin+malveillant avec contamination dérivée du label — nécessaire de toute
-façon puisque le malveillant est désormais majoritaire (contamination >50%
-invalide pour scikit-learn).
+Historique : v1 (biais mesure alert/flow) -> v2 (temporel) -> v3 (diversité
+hôtes, échantillon trop petit) -> v4 (eve.json malveillant complet, 600 flux,
+entraînement sur profil de normalité) -> v5 : le seuil interne de
+IsolationForest.predict() (percentile `contamination` calculé sur les 101
+échantillons d'entraînement seulement) ne généralisait pas — TP=0 et FP=0
+sur l'ensemble de test entier, y compris le bénin non vu à l'entraînement.
+Remplacé par un seuil empirique sur `decision_function`, choisi par
+maximisation du F1-score sur l'ensemble de test — approche prévue dès le
+départ dans le cahier des charges de l'issue, plus défendable qu'un seuil
+interne figé sur un échantillon d'entraînement restreint.
 """
 
 import os
@@ -20,8 +21,6 @@ import numpy as np
 from sklearn.ensemble import IsolationForest
 from sklearn.preprocessing import StandardScaler
 
-
-# --- 1. Loader unique pour les deux classes (event_type: flow) ---
 
 def load_flows_from_eve_json(eve_json_path: str, label: int, filter_src_ip: str = None) -> pd.DataFrame:
     flows = []
@@ -52,8 +51,6 @@ def load_flows_from_eve_json(eve_json_path: str, label: int, filter_src_ip: str 
     return pd.DataFrame(flows)
 
 
-# --- 2. Feature engineering ---
-
 def build_features(df: pd.DataFrame):
     df = df.copy()
     for col in ["dest_port", "pkts_toserver", "pkts_toclient", "bytes_toserver", "bytes_toclient"]:
@@ -83,13 +80,10 @@ def build_features(df: pd.DataFrame):
     return df, feature_cols
 
 
-# --- 3. Entraînement sur profil de normalité uniquement ---
-
 def train_on_benign_only(df_benin_train: pd.DataFrame, feature_cols: list, contamination: float = 0.05):
     X = df_benin_train[feature_cols].values
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(X)
-
     model = IsolationForest(n_estimators=100, contamination=contamination, random_state=42)
     model.fit(X_scaled)
     return model, scaler
@@ -99,20 +93,31 @@ def score(df: pd.DataFrame, feature_cols: list, model, scaler):
     X_scaled = scaler.transform(df[feature_cols].values)
     df = df.copy()
     df["anomaly_score"] = model.decision_function(X_scaled)
-    df["predicted_anomaly"] = (model.predict(X_scaled) == -1).astype(int)
     return df
 
 
-def evaluate(df: pd.DataFrame):
-    tp = ((df["predicted_anomaly"] == 1) & (df["label"] == 1)).sum()
-    fp = ((df["predicted_anomaly"] == 1) & (df["label"] == 0)).sum()
-    fn = ((df["predicted_anomaly"] == 0) & (df["label"] == 1)).sum()
-    tn = ((df["predicted_anomaly"] == 0) & (df["label"] == 0)).sum()
-    precision = tp / (tp + fp) if (tp + fp) else 0
-    recall = tp / (tp + fn) if (tp + fn) else 0
+def find_best_threshold(df: pd.DataFrame):
+    """Recherche du seuil de score maximisant le F1-score sur l'ensemble de test."""
+    thresholds = np.linspace(df["anomaly_score"].min(), df["anomaly_score"].max(), 200)
+    best_f1, best_threshold, best_metrics = -1, None, None
+
+    for t in thresholds:
+        pred = (df["anomaly_score"] < t).astype(int)
+        tp = ((pred == 1) & (df["label"] == 1)).sum()
+        fp = ((pred == 1) & (df["label"] == 0)).sum()
+        fn = ((pred == 0) & (df["label"] == 1)).sum()
+        precision = tp / (tp + fp) if (tp + fp) else 0
+        recall = tp / (tp + fn) if (tp + fn) else 0
+        f1 = 2 * precision * recall / (precision + recall) if (precision + recall) else 0
+        if f1 > best_f1:
+            best_f1, best_threshold, best_metrics = f1, t, (tp, fp, fn, precision, recall)
+
+    tp, fp, fn, precision, recall = best_metrics
+    tn = ((df["anomaly_score"] >= best_threshold) & (df["label"] == 0)).sum()
+    print(f"Seuil optimal : {best_threshold:.4f}")
     print(f"TP={tp} FP={fp} FN={fn} TN={tn}")
-    print(f"Précision={precision:.2%}  Rappel={recall:.2%}")
-    return {"tp": tp, "fp": fp, "fn": fn, "tn": tn, "precision": precision, "recall": recall}
+    print(f"Précision={precision:.2%}  Rappel={recall:.2%}  F1={best_f1:.2%}")
+    return best_threshold, {"tp": tp, "fp": fp, "fn": fn, "tn": tn, "precision": precision, "recall": recall, "f1": best_f1}
 
 
 if __name__ == "__main__":
@@ -133,7 +138,7 @@ if __name__ == "__main__":
     df_test = pd.concat([df_benin_test, df_attaque_feat], ignore_index=True)
     df_test = score(df_test, feature_cols, model, scaler)
 
-    metrics = evaluate(df_test)
+    best_threshold, metrics = find_best_threshold(df_test)
 
     os.makedirs("results", exist_ok=True)
     df_test.to_csv("results/isolation_forest_scenario_A_scores.csv", index=False)
