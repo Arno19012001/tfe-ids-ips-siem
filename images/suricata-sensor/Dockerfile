@@ -31,13 +31,17 @@ RUN apt-get update && apt-get install -y curl gnupg \
 
 # --- Config statique : adresse du Manager + collecte EVE JSON ---
 RUN sed -i "s#<address>MANAGER_IP</address>#<address>10.0.30.10</address>#" /var/ossec/etc/ossec.conf \
-    && LASTLINE=$(grep -n "</ossec_config>" /var/ossec/etc/ossec.conf | tail -1 | cut -d: -f1) \
-    && sed -i "${LASTLINE}s#</ossec_config>#  <localfile>\n    <log_format>json</log_format>\n    <location>/var/log/suricata/eve.json</location>\n  </localfile>\n</ossec_config>#" /var/ossec/etc/ossec.conf
+    && LASTLINE= \
+    && sed -i "s#</ossec_config>#  <localfile>\n    <log_format>json</log_format>\n    <location>/var/log/suricata/eve.json</location>\n  </localfile>\n</ossec_config>#" /var/ossec/etc/ossec.conf
 
-# --- Persistance de l'identité Wazuh (client.keys) au-delà d'un stop/start du nœud ---
-# GNS3 mappe automatiquement les volumes déclarés vers un dossier persistant du projet,
-# évitant un ré-enrôlement (et donc un conflit "Duplicate agent name") à chaque redémarrage.
+# --- Persistance de l identité Wazuh (client.keys) au-delà d un stop/start du nœud ---
 VOLUME ["/var/ossec/etc"]
+
+# --- Persistance des logs Suricata (eve.json) — évite la perte de l historique
+# d attaque lors d une recréation du nœud (incident documenté du 07/07/2026,
+# ayant contraint un repli sur l Indexer OpenSearch, lui-même limité par le
+# throttling "threshold" des règles Suricata) ---
+VOLUME ["/var/log/suricata"]
 
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY suricata.yaml /etc/suricata/suricata.yaml
