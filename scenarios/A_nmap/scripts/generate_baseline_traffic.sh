@@ -11,7 +11,7 @@
 WEB_TARGET="10.0.10.10"
 SSH_TARGET="10.0.10.20"
 SSH_USER="eurostar"
-DURATION_MIN=45
+DURATION_MIN=720
 END_TIME=$(( $(date +%s) + DURATION_MIN * 60 ))
 
 # Chemins variés — qu'ils existent (200) ou non (404) sur web-eurostar,
