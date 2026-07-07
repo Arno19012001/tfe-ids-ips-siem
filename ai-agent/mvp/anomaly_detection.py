@@ -7,10 +7,21 @@ du Scénario A lors d une recréation du nœud suricata-sensor, /var/log/suricat
 n étant pas déclaré comme volume persistant à ce moment) :
   - Bénin  : eve.json brut extrait de suricata-sensor (event_type: flow)
   - Malveillant : export Indexer OpenSearch (event_type: alert, avec data.flow imbriqué)
-Le schéma de features final est identique pour les deux classes malgré l origine
-différente — seuls les champs bruts extraits diffèrent avant harmonisation.
+
+Ajustement v2 (features temporelles) : les features volumétriques initiales
+(total_bytes, total_pkts, bytes_ratio) ont été abandonnées après diagnostic
+d un biais de mesure structurel — le sous-objet flow d un événement alert
+est un instantané pris au déclenchement de la règle (souvent avant toute
+réponse serveur), tandis que celui d un événement flow autonome est calculé
+à la fermeture complète de la connexion. Comparer les deux classes sur ces
+champs revenait à comparer un trafic mesuré tôt à un trafic mesuré tard,
+biais sans rapport avec un vrai comportement de scan. Remplacé par des
+features temporelles (fréquence de connexion, diversité des ports touchés),
+calculées identiquement pour les deux classes à partir du seul champ fiable
+des deux côtés : le timestamp de début de flux (start).
 """
 
+import os
 import json
 import pandas as pd
 import numpy as np
@@ -51,7 +62,7 @@ def load_benign_from_eve_json(eve_json_path: str) -> pd.DataFrame:
 # --- 1b. Chargement du malveillant — export Indexer OpenSearch (event_type: alert) ---
 
 def load_malicious_from_indexer_export(export_path: str) -> pd.DataFrame:
-    with open(export_path, "r") as f:
+    with open(export_path, "r", encoding="utf-8-sig") as f:
         payload = json.load(f)
 
     rows = []
@@ -76,24 +87,41 @@ def load_malicious_from_indexer_export(export_path: str) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-# --- 2. Feature engineering ---
+# --- 2. Feature engineering (v2 — features temporelles) ---
 
 def build_features(df: pd.DataFrame):
     df = df.copy()
-    for col in ["dest_port", "src_port", "pkts_toserver", "pkts_toclient",
-                "bytes_toserver", "bytes_toclient"]:
+    for col in ["dest_port", "src_port"]:
         df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
-
     df["is_wellknown_dport"] = (df["dest_port"] < 1024).astype(int)
-    df["total_bytes"] = df["bytes_toserver"] + df["bytes_toclient"]
-    df["total_pkts"] = df["pkts_toserver"] + df["pkts_toclient"]
-    df["bytes_ratio"] = df["bytes_toserver"] / df["total_bytes"].replace(0, 1)
-    df["src_ip_conn_count"] = df.groupby("src_ip")["flow_id"].transform("count")
 
-    feature_cols = [
-        "dest_port", "is_wellknown_dport", "total_bytes",
-        "total_pkts", "bytes_ratio", "src_ip_conn_count",
-    ]
+    # Timestamp harmonisé (champ start, présent et fiable des deux côtés)
+    df["ts"] = pd.to_datetime(df["start"], errors="coerce", utc=True)
+    df = df.sort_values("ts").reset_index(drop=True)
+
+    # Features temporelles par IP source — signal de scan classique
+    # (fréquence de connexion, diversité des ports), non affecté par
+    # l asymétrie de capture flow/alert documentée en en-tête de fichier.
+    conn_counts, dport_diversity = [], []
+    for _, row in df.iterrows():
+        mask_10s = (
+            (df["src_ip"] == row["src_ip"]) &
+            (df["ts"] >= row["ts"] - pd.Timedelta(seconds=10)) &
+            (df["ts"] <= row["ts"])
+        )
+        conn_counts.append(mask_10s.sum())
+
+        mask_30s = (
+            (df["src_ip"] == row["src_ip"]) &
+            (df["ts"] >= row["ts"] - pd.Timedelta(seconds=30)) &
+            (df["ts"] <= row["ts"])
+        )
+        dport_diversity.append(df.loc[mask_30s, "dest_port"].nunique())
+
+    df["conn_count_10s"] = conn_counts
+    df["distinct_dports_30s"] = dport_diversity
+
+    feature_cols = ["dest_port", "is_wellknown_dport", "conn_count_10s", "distinct_dports_30s"]
     return df, feature_cols
 
 
@@ -142,4 +170,6 @@ if __name__ == "__main__":
     df_all, model, scaler = train_isolation_forest(df_all, feature_cols, contamination_estimee)
 
     metrics = evaluate(df_all)
+
+    os.makedirs("results", exist_ok=True)
     df_all.to_csv("results/isolation_forest_scenario_A_scores.csv", index=False)
