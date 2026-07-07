@@ -8,17 +8,20 @@ n étant pas déclaré comme volume persistant à ce moment) :
   - Bénin  : eve.json brut extrait de suricata-sensor (event_type: flow)
   - Malveillant : export Indexer OpenSearch (event_type: alert, avec data.flow imbriqué)
 
-Ajustement v2 (features temporelles) : les features volumétriques initiales
-(total_bytes, total_pkts, bytes_ratio) ont été abandonnées après diagnostic
-d un biais de mesure structurel — le sous-objet flow d un événement alert
-est un instantané pris au déclenchement de la règle (souvent avant toute
-réponse serveur), tandis que celui d un événement flow autonome est calculé
-à la fermeture complète de la connexion. Comparer les deux classes sur ces
-champs revenait à comparer un trafic mesuré tôt à un trafic mesuré tard,
-biais sans rapport avec un vrai comportement de scan. Remplacé par des
-features temporelles (fréquence de connexion, diversité des ports touchés),
-calculées identiquement pour les deux classes à partir du seul champ fiable
-des deux côtés : le timestamp de début de flux (start).
+Historique des itérations de features :
+  v1 (volumétrique) : total_bytes/pkts/bytes_ratio — biais de mesure identifié
+      (flow imbriqué dans un alert = instantané au déclenchement de la règle,
+      vs flow autonome = calculé à la fermeture complète de connexion).
+      Précision 53.85% / Rappel 41.18%.
+  v2 (temporel pur) : conn_count_10s/distinct_dports_30s — rythme du scan
+      (~10s entre connexions, timing Nmap volontairement discret type -T2)
+      trop proche du rythme humain simulé du baseline pour discriminer.
+      Précision 46.88% / Rappel 44.12% (pire que v1).
+  v3 (actuelle) : réintégration pkts_toserver/toclient (signal réel malgré
+      la réserve méthodologique v1) + ajout distinct_dest_ip_60s (diversité
+      des hôtes contactés par la même IP source sur une fenêtre glissante
+      de 60s) — signal comportemental de scan multi-hôtes, non affecté par
+      le rythme de l attaque ni par le chevauchement des ports ciblés.
 """
 
 import os
@@ -87,41 +90,36 @@ def load_malicious_from_indexer_export(export_path: str) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-# --- 2. Feature engineering (v2 — features temporelles) ---
+# --- 2. Feature engineering (v3) ---
 
 def build_features(df: pd.DataFrame):
     df = df.copy()
-    for col in ["dest_port", "src_port"]:
+    for col in ["dest_port", "src_port", "pkts_toserver", "pkts_toclient",
+                "bytes_toserver", "bytes_toclient"]:
         df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
     df["is_wellknown_dport"] = (df["dest_port"] < 1024).astype(int)
 
-    # Timestamp harmonisé (champ start, présent et fiable des deux côtés)
     df["ts"] = pd.to_datetime(df["start"], errors="coerce", utc=True)
     df = df.sort_values("ts").reset_index(drop=True)
 
-    # Features temporelles par IP source — signal de scan classique
-    # (fréquence de connexion, diversité des ports), non affecté par
-    # l asymétrie de capture flow/alert documentée en en-tête de fichier.
-    conn_counts, dport_diversity = [], []
+    # Diversité des hôtes de destination contactés par la même IP source
+    # sur une fenêtre glissante de 60s — signal de scan multi-hôtes,
+    # insensible au rythme de l attaque et au chevauchement de ports.
+    distinct_dest_ips = []
     for _, row in df.iterrows():
-        mask_10s = (
+        mask_60s = (
             (df["src_ip"] == row["src_ip"]) &
-            (df["ts"] >= row["ts"] - pd.Timedelta(seconds=10)) &
+            (df["ts"] >= row["ts"] - pd.Timedelta(seconds=60)) &
             (df["ts"] <= row["ts"])
         )
-        conn_counts.append(mask_10s.sum())
+        distinct_dest_ips.append(df.loc[mask_60s, "dest_ip"].nunique())
+    df["distinct_dest_ip_60s"] = distinct_dest_ips
 
-        mask_30s = (
-            (df["src_ip"] == row["src_ip"]) &
-            (df["ts"] >= row["ts"] - pd.Timedelta(seconds=30)) &
-            (df["ts"] <= row["ts"])
-        )
-        dport_diversity.append(df.loc[mask_30s, "dest_port"].nunique())
-
-    df["conn_count_10s"] = conn_counts
-    df["distinct_dports_30s"] = dport_diversity
-
-    feature_cols = ["dest_port", "is_wellknown_dport", "conn_count_10s", "distinct_dports_30s"]
+    feature_cols = [
+        "dest_port", "is_wellknown_dport",
+        "pkts_toserver", "pkts_toclient",
+        "distinct_dest_ip_60s",
+    ]
     return df, feature_cols
 
 
