@@ -7,7 +7,17 @@ hôtes) -> v4 (eve.json malveillant complet, 600 flux) -> v5 (seuil F1, biaisé
 par évaluation sur le même ensemble) -> v6 (split train/val/test, révèle 77%
 de FP réels) -> v7 (capture bénin 12h, 2628 flux — le taux de FP ne baisse
 quasiment pas : 76.81%, confirmant que le volume seul ne résout pas le
-problème) -> v8 : le bénin mélange deux profils structurellement différents
+problème) -> v9 : correctif critique — le chargement du bénin n'appliquait aucun
+filtre par IP source, contrairement au malveillant (filtré sur l'IP de
+kali-attacker). Comme /var/log/suricata est maintenant persistant et que
+l'attaque a été relancée sur le même conteneur avant la capture de 12h,
+sans purge de eve.json entre les deux, le fichier "bénin" contenait des
+flux résiduels de l'attaquant (port 21 observé côté bénin alors que le
+script de baseline ne cible jamais ce port). Ajout du filtre
+filter_src_ip="10.0.20.50" (IP de workstation-it), symétrique à celui
+déjà appliqué côté malveillant.
+
+v8 : le bénin mélange deux profils structurellement différents
 (HTTP avec échanges de données réels, SSH qui échoue systématiquement avec
 quasiment aucun octet) que demander à UN SEUL modèle générique d'apprendre
 comme une notion unique de normalité pousse à se chevaucher avec le
@@ -193,7 +203,7 @@ def evaluate_at_threshold(df: pd.DataFrame, threshold: float, label_ensemble: st
 
 
 if __name__ == "__main__":
-    df_benin = load_flows_from_eve_json("eve_baseline_benin.json", label=0)
+    df_benin = load_flows_from_eve_json("eve_baseline_benin.json", label=0, filter_src_ip="10.0.20.50")
     df_attaque = load_flows_from_eve_json("eve_scenario_A_complet.json", label=1, filter_src_ip="192.168.1.50")
     print(f"Bénin : {len(df_benin)} flux | Malveillant : {len(df_attaque)} flux")
 
