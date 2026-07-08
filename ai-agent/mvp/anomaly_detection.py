@@ -1,17 +1,23 @@
 """
 anomaly_detection.py — Détection d'anomalies (Isolation Forest) sur trafic Suricata
-TFE IDS/IPS & SIEM — Issue #15 — v7 (calcul de features optimisé pour gros volumes)
+TFE IDS/IPS & SIEM — Issue #15 — v8 (modèle par service)
 
 Historique : v1 (biais mesure alert/flow) -> v2 (temporel) -> v3 (diversité
-hôtes, échantillon trop petit) -> v4 (eve.json malveillant complet, 600 flux,
-entraînement sur profil de normalité) -> v5 (seuil empirique F1, mais choisi
-sur le même ensemble que le test) -> v6 (split entraînement/validation/test,
-baseline enrichi 729 flux/45min — révèle un taux de FP réel de 77% sur le
-bénin, démontrant que le résultat v5 était en grande partie un artefact de
-l'évaluation) -> v7 : remplacement de la boucle O(n²) de calcul de diversité
-des hôtes de destination par une fenêtre glissante O(n) par groupe (deux
-pointeurs + compteur), nécessaire pour absorber le volume d'une capture de
-baseline de 12h (plusieurs milliers de flux attendus, contre 729 en v6).
+hôtes) -> v4 (eve.json malveillant complet, 600 flux) -> v5 (seuil F1, biaisé
+par évaluation sur le même ensemble) -> v6 (split train/val/test, révèle 77%
+de FP réels) -> v7 (capture bénin 12h, 2628 flux — le taux de FP ne baisse
+quasiment pas : 76.81%, confirmant que le volume seul ne résout pas le
+problème) -> v8 : le bénin mélange deux profils structurellement différents
+(HTTP avec échanges de données réels, SSH qui échoue systématiquement avec
+quasiment aucun octet) que demander à UN SEUL modèle générique d'apprendre
+comme une notion unique de normalité pousse à se chevaucher avec le
+comportement du scan. Remplacé par un modèle Isolation Forest DISTINCT par
+port de destination observé dans le bénin d'entraînement — chaque modèle
+apprend une notion de normalité cohérente pour un seul service, plutôt
+qu'un compromis flou entre plusieurs profils incompatibles. Un port jamais
+observé dans le bénin d'entraînement (ex. FTP 21, HTTPS 443, présents
+uniquement côté malveillant) est automatiquement considéré comme anomalie,
+sans même nécessiter de modèle pour ce cas.
 """
 
 import os
@@ -52,12 +58,6 @@ def load_flows_from_eve_json(eve_json_path: str, label: int, filter_src_ip: str 
 
 
 def _distinct_dest_ip_sliding_window(group: pd.DataFrame, window_seconds: int = 60) -> np.ndarray:
-    """
-    Calcule, pour chaque ligne d'un groupe (déjà trié par ts), le nombre
-    d'adresses IP de destination distinctes contactées dans les `window_seconds`
-    précédentes — via une fenêtre glissante à deux pointeurs (O(n) amorti),
-    au lieu de reconstruire un masque sur tout le DataFrame à chaque ligne (O(n²)).
-    """
     ts = group["ts"].to_numpy()
     dest_ips = group["dest_ip"].to_numpy()
     window = pd.Timedelta(seconds=window_seconds).to_numpy()
@@ -89,7 +89,7 @@ def build_features(df: pd.DataFrame):
     df = df.copy()
     for col in ["dest_port", "pkts_toserver", "pkts_toclient", "bytes_toserver", "bytes_toclient"]:
         df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
-    df["is_wellknown_dport"] = (df["dest_port"] < 1024).astype(int)
+    df["dest_port"] = df["dest_port"].astype(int)
     df["total_bytes"] = df["bytes_toserver"] + df["bytes_toclient"]
     df["total_pkts"] = df["pkts_toserver"] + df["pkts_toclient"]
     df["bytes_ratio"] = df["bytes_toserver"] / df["total_bytes"].replace(0, 1)
@@ -97,41 +97,68 @@ def build_features(df: pd.DataFrame):
     df["ts"] = pd.to_datetime(df["start"], errors="coerce", utc=True)
     df = df.sort_values(["src_ip", "ts"]).reset_index(drop=True)
 
-    # Fenêtre glissante calculée séparément par IP source (groupby), puis
-    # réassemblée dans l'ordre d'origine du DataFrame via l'index.
     diversity = np.zeros(len(df), dtype=int)
     for _, group in df.groupby("src_ip"):
         diversity[group.index.to_numpy()] = _distinct_dest_ip_sliding_window(group)
     df["distinct_dest_ip_60s"] = diversity
 
-    feature_cols = [
-        "dest_port", "is_wellknown_dport", "total_bytes",
-        "total_pkts", "bytes_ratio", "distinct_dest_ip_60s",
-    ]
-    return df, feature_cols
+    # dest_port retiré des features des sous-modèles : il devient la clé de
+    # regroupement elle-même (constant au sein de chaque modèle par service),
+    # donc non informatif à l'intérieur d'un sous-modèle.
+    service_feature_cols = ["total_bytes", "total_pkts", "bytes_ratio", "distinct_dest_ip_60s"]
+    return df, service_feature_cols
 
 
-def train_on_benign_only(df_benin_train: pd.DataFrame, feature_cols: list, contamination: float = 0.05):
-    X = df_benin_train[feature_cols].values
-    scaler = StandardScaler()
-    X_scaled = scaler.fit_transform(X)
-    model = IsolationForest(n_estimators=100, contamination=contamination, random_state=42)
-    model.fit(X_scaled)
-    return model, scaler
+def train_per_service(df_benin_train: pd.DataFrame, feature_cols: list, min_samples: int = 20, contamination: float = 0.05):
+    """Un modèle Isolation Forest distinct par port de destination observé dans le bénin d'entraînement."""
+    models = {}
+    for port in df_benin_train["dest_port"].unique():
+        subset = df_benin_train[df_benin_train["dest_port"] == port]
+        if len(subset) < min_samples:
+            print(f"  Port {port} : {len(subset)} échantillons, insuffisant (< {min_samples}) — ignoré")
+            continue
+        X = subset[feature_cols].values
+        scaler = StandardScaler()
+        X_scaled = scaler.fit_transform(X)
+        model = IsolationForest(n_estimators=100, contamination=contamination, random_state=42)
+        model.fit(X_scaled)
+        models[port] = (model, scaler)
+        print(f"  Port {port} : modèle entraîné sur {len(subset)} échantillons")
+    return models
 
 
-def score(df: pd.DataFrame, feature_cols: list, model, scaler):
-    X_scaled = scaler.transform(df[feature_cols].values)
+def score_per_service(df: pd.DataFrame, feature_cols: list, models: dict) -> pd.DataFrame:
+    """
+    Score chaque flux avec le modèle de SON port. Un port jamais observé dans
+    le bénin d'entraînement reçoit un score -inf (anomalie automatique,
+    quel que soit le seuil retenu ensuite).
+    """
     df = df.copy()
-    df["anomaly_score"] = model.decision_function(X_scaled)
+    df["anomaly_score"] = -np.inf
+    for port, (model, scaler) in models.items():
+        mask = df["dest_port"] == port
+        if mask.sum() == 0:
+            continue
+        X_scaled = scaler.transform(df.loc[mask, feature_cols].values)
+        df.loc[mask, "anomaly_score"] = model.decision_function(X_scaled)
     return df
 
 
 def find_best_threshold(df_val: pd.DataFrame):
-    """Recherche du seuil maximisant le F1-score, sur l'ensemble de VALIDATION uniquement."""
-    thresholds = np.linspace(df_val["anomaly_score"].min(), df_val["anomaly_score"].max(), 200)
-    best_f1, best_threshold = -1, None
+    """
+    Seuil maximisant le F1-score sur l'ensemble de VALIDATION. La grille de
+    recherche est bornée sur les scores réels (ports connus) uniquement ;
+    les lignes -inf (port jamais vu en bénin) sont toujours comptées comme
+    anomalie, quel que soit le seuil testé, et participent donc à l'évaluation
+    du F1 sans fausser la grille de recherche elle-même.
+    """
+    known = df_val[np.isfinite(df_val["anomaly_score"])]
+    if known.empty:
+        thresholds = [0.0]
+    else:
+        thresholds = np.linspace(known["anomaly_score"].min(), known["anomaly_score"].max(), 200)
 
+    best_f1, best_threshold = -1, None
     for t in thresholds:
         pred = (df_val["anomaly_score"] < t).astype(int)
         tp = ((pred == 1) & (df_val["label"] == 1)).sum()
@@ -188,16 +215,19 @@ if __name__ == "__main__":
 
     print(f"Split bénin : train={len(df_benin_train)} val={len(df_benin_val)} test={len(df_benin_test)}")
     print(f"Split malveillant : val={len(df_attaque_val)} test={len(df_attaque_test)}")
+    print(f"\nPorts bénins observés à l'entraînement : {sorted(df_benin_train['dest_port'].unique().tolist())}")
+    print(f"Ports malveillants observés (val+test) : {sorted(df_attaque_shuf['dest_port'].unique().tolist())}\n")
 
-    model, scaler = train_on_benign_only(df_benin_train, feature_cols, contamination=0.05)
+    print("Entraînement des modèles par service :")
+    models = train_per_service(df_benin_train, feature_cols)
 
     df_val = pd.concat([df_benin_val, df_attaque_val], ignore_index=True)
-    df_val = score(df_val, feature_cols, model, scaler)
+    df_val = score_per_service(df_val, feature_cols, models)
     best_threshold, val_f1 = find_best_threshold(df_val)
     print(f"\nSeuil optimal (choisi sur validation) : {best_threshold:.4f} (F1 validation={val_f1:.2%})\n")
 
     df_test = pd.concat([df_benin_test, df_attaque_test], ignore_index=True)
-    df_test = score(df_test, feature_cols, model, scaler)
+    df_test = score_per_service(df_test, feature_cols, models)
     metrics_test = evaluate_at_threshold(df_test, best_threshold, "TEST (seuil non vu à son propre calcul)")
 
     os.makedirs("results", exist_ok=True)
