@@ -21,6 +21,20 @@ fi
 mysqld_safe --user=root &
 echo "[web-eurostar] MySQL démarré"
 
+# ── Enrôlement automatique de l'agent Wazuh (non-fatal) ───────
+WAZUH_MANAGER_IP="10.0.30.10"
+
+if [ ! -s /var/ossec/etc/client.keys ]; then
+    echo "[web-eurostar] Agent Wazuh non enregistré, enrollment vers $WAZUH_MANAGER_IP..."
+    if ! /var/ossec/bin/agent-auth -m "$WAZUH_MANAGER_IP" -A web-eurostar; then
+        echo "[web-eurostar] AVERTISSEMENT : échec de l'enrollment Wazuh (Manager injoignable au démarrage). Apache/MySQL restent fonctionnels. Réessayer manuellement : agent-auth -m $WAZUH_MANAGER_IP -A web-eurostar"
+    fi
+else
+    echo "[web-eurostar] Agent Wazuh déjà enregistré (client.keys présent)."
+fi
+
+/var/ossec/bin/wazuh-control start || echo "[web-eurostar] AVERTISSEMENT : wazuh-control start a échoué (agent probablement non enrôlé). Non-bloquant."
+
 echo "[web-eurostar] Conteneur prêt – services actifs sur 10.0.10.10"
 
 # Maintien du conteneur en vie

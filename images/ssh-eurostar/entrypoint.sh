@@ -21,5 +21,19 @@ echo "[ssh-eurostar] SSHD démarré (PID: $SSHD_PID)"
 echo "[ssh-eurostar] Conteneur prêt – SSH actif sur 10.0.10.20:22"
 echo "[ssh-eurostar] Utilisateur cible : eurostar"
 
+# ── Enrôlement automatique de l'agent Wazuh (non-fatal) ───────
+WAZUH_MANAGER_IP="10.0.30.10"
+
+if [ ! -s /var/ossec/etc/client.keys ]; then
+    echo "[ssh-eurostar] Agent Wazuh non enregistré, enrollment vers $WAZUH_MANAGER_IP..."
+    if ! /var/ossec/bin/agent-auth -m "$WAZUH_MANAGER_IP" -A ssh-eurostar; then
+        echo "[ssh-eurostar] AVERTISSEMENT : échec de l'enrollment Wazuh (Manager injoignable au démarrage). SSH reste fonctionnel. Réessayer manuellement : agent-auth -m $WAZUH_MANAGER_IP -A ssh-eurostar"
+    fi
+else
+    echo "[ssh-eurostar] Agent Wazuh déjà enregistré (client.keys présent)."
+fi
+
+/var/ossec/bin/wazuh-control start || echo "[ssh-eurostar] AVERTISSEMENT : wazuh-control start a échoué (agent probablement non enrôlé). Non-bloquant."
+
 # Maintien du conteneur en vie
 wait $SSHD_PID
