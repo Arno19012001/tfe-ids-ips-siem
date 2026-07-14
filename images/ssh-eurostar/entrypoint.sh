@@ -9,6 +9,11 @@ ip route add default via 10.0.10.1
 
 echo "[ssh-eurostar] IP 10.0.10.20/24 configurée, gateway 10.0.10.1"
 
+# ── Démarrage rsyslog (requis pour que sshd écrive dans auth.log) ─
+mkdir -p /var/spool/rsyslog
+/usr/sbin/rsyslogd
+echo "[ssh-eurostar] rsyslogd démarré"
+
 # ── Génération des clés hôtes SSH (si absentes) ───────────────
 ssh-keygen -A
 echo "[ssh-eurostar] Clés hôtes SSH générées"

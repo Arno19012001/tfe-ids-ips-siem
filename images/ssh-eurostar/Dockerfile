@@ -7,6 +7,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y \
     openssh-server \
+    rsyslog \
     iproute2 \
     iputils-ping \
     curl \
@@ -30,8 +31,10 @@ RUN curl -s https://packages.wazuh.com/key/GPG-KEY-WAZUH | gpg --no-default-keyr
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# --- Config statique : adresse du Manager ---
-RUN sed -i "s#<address>MANAGER_IP</address>#<address>10.0.30.10</address>#" /var/ossec/etc/ossec.conf
+# --- Config statique : adresse du Manager + collecte auth.log (Scénario B, Issue #17) ---
+RUN sed -i "s#<address>MANAGER_IP</address>#<address>10.0.30.10</address>#" /var/ossec/etc/ossec.conf \
+    && LASTLINE=$(grep -n "</ossec_config>" /var/ossec/etc/ossec.conf | tail -1 | cut -d: -f1) \
+    && sed -i "${LASTLINE}s#</ossec_config>#  <localfile>\n    <log_format>syslog</log_format>\n    <location>/var/log/auth.log</location>\n  </localfile>\n</ossec_config>#" /var/ossec/etc/ossec.conf
 
 # --- Persistance de l'identité Wazuh (client.keys) au-delà d'un stop/start du nœud ---
 VOLUME ["/var/ossec/etc"]
