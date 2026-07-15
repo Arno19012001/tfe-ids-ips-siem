@@ -12,12 +12,26 @@
 # brute force. La corrélation échec->succès relève du HIDS (Wazuh,
 # auth.log), hors périmètre NIDS de cette règle.
 #
-# Seuil initial (NON VALIDÉ empiriquement à ce stade) : basé sur
-# hydra -t 4 (4 connexions parallèles) sur réseau local virtualisé
-# (latence quasi nulle) -> volume attendu nettement supérieur à un
-# usage légitime (un admin humain ouvre rarement 5 sessions SSH en
-# moins de 20s). À confirmer/ajuster avec un test réel (cf. tâche
-# "Tester en mode simulation avant activation" de l'issue #16).
+# --- Calibrage empirique (test du 15/07/2026, cf. Issue #16) ---
+# Campagne réelle : 120 tentatives de mot de passe, 25 connexions TCP
+# observées (ratio ~4,8 tentatives/connexion — cohérent avec
+# MaxAuthTries=6 par défaut d'OpenSSH : Hydra réutilise chaque
+# connexion pour plusieurs mots de passe plutôt que d'en ouvrir une
+# par tentative). Pattern observé : 6 rafales de 4-5 connexions
+# quasi simultanées (<0,5s d'écart), espacées très régulièrement de
+# ~17,3s (résultat du parallélisme -t 4 combiné au throttling
+# implicite du cycle connexion/déconnexion SSH).
+#
+# Seuil initial (count 5, seconds 20) ne détectait que 3/6 rafales
+# (dépendant du chevauchement de fenêtre). Recalibré à count 4
+# (taille minimale de rafale observée) / seconds 15 (> étalement
+# d'une rafale, < écart inter-rafales de 17,3s, pour que chaque
+# rafale déclenche sa propre alerte) -> 6/6 attendu (0% FN sur
+# cette campagne, à reconfirmer par un run de validation).
+#
+# Limite connue : calibrage spécifique aux paramètres de attack.sh
+# (-t 4). Un brute force plus lent/mono-thread produirait des
+# rafales plus petites, potentiellement non détectées par ce seuil.
 # ============================================================
 
-alert tcp $EXTERNAL_NET any -> $DMZ_NET $SSH_PORTS (msg:"SCENARIO_B SSH Brute Force - High Connection Rate"; flow:to_server; flags:S; threshold:type both, track by_src, count 5, seconds 20; classtype:attempted-recon; metadata: scenario B, mitre_tactic TA0006_CredentialAccess, mitre_technique T1110.001; reference:url,attack.mitre.org/techniques/T1110/001/; sid:1000201; rev:1;)
+alert tcp $EXTERNAL_NET any -> $DMZ_NET $SSH_PORTS (msg:"SCENARIO_B SSH Brute Force - High Connection Rate"; flow:to_server; flags:S; threshold:type both, track by_src, count 4, seconds 15; classtype:attempted-recon; metadata: scenario B, mitre_tactic TA0006_CredentialAccess, mitre_technique T1110.001; reference:url,attack.mitre.org/techniques/T1110/001/; sid:1000201; rev:2;)
