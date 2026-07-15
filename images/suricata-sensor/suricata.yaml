@@ -61,6 +61,7 @@ default-rule-path: /etc/suricata/rules
 rule-files:
   - base.rules
   - scenarios/scenario_A_nmap.rules
+  - scenarios/scenario_B_hydra.rules
 
 # --- Variables réseau ---
 vars:

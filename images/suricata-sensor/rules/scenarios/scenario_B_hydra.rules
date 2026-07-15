@@ -1,0 +1,23 @@
+# ============================================================
+# Scénario B — Brute force SSH (Hydra)
+# TFE Eurostar — Kill chain : TA0006/T1110.001 (Brute Force: Password Guessing)
+# Commande de référence : hydra -l eurostar -P wordlist_scenario_B.txt -t 4 -f ssh://10.0.10.20:22 -V
+# Plage SID réservée : 1000200-1000299
+# Mode : alert-only (validation IDS, aucun blocage à ce stade)
+# Cible : $DMZ_NET (10.0.10.0/24)
+#
+# NB : SSH chiffre l'authentification — Suricata ne peut PAS distinguer
+# un échec d'un succès de connexion. Cette règle détecte uniquement le
+# volume anormal de connexions vers le port SSH, caractéristique d'un
+# brute force. La corrélation échec->succès relève du HIDS (Wazuh,
+# auth.log), hors périmètre NIDS de cette règle.
+#
+# Seuil initial (NON VALIDÉ empiriquement à ce stade) : basé sur
+# hydra -t 4 (4 connexions parallèles) sur réseau local virtualisé
+# (latence quasi nulle) -> volume attendu nettement supérieur à un
+# usage légitime (un admin humain ouvre rarement 5 sessions SSH en
+# moins de 20s). À confirmer/ajuster avec un test réel (cf. tâche
+# "Tester en mode simulation avant activation" de l'issue #16).
+# ============================================================
+
+alert tcp $EXTERNAL_NET any -> $DMZ_NET $SSH_PORTS (msg:"SCENARIO_B SSH Brute Force - High Connection Rate"; flow:to_server; flags:S; threshold:type both, track by_src, count 5, seconds 20; classtype:attempted-recon; metadata: scenario B, mitre_tactic TA0006_CredentialAccess, mitre_technique T1110.001; reference:url,attack.mitre.org/techniques/T1110/001/; sid:1000201; rev:1;)
