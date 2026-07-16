@@ -62,6 +62,7 @@ rule-files:
   - base.rules
   - scenarios/scenario_A_nmap.rules
   - scenarios/scenario_B_hydra.rules
+  - scenarios/scenario_C_sqlmap.rules
 
 # --- Variables réseau ---
 vars:
