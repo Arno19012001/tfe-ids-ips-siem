@@ -15,20 +15,39 @@
 # sqlmap par défaut) et comportement (volume de requêtes sur le
 # paramètre injectable).
 #
-# NB (rev suite fusion 1000303/1000305) : les tests boolean-based et
-# error-based de sqlmap se recouvrent presque systématiquement (une
-# quote isolée déclenche généralement aussi le test OR/AND numérique
-# dans la même campagne). Fusionnées en une seule signature 1000303
-# pour éviter le double comptage lors du calcul du taux de FN/FP.
+# NB (rev suite fusion 1000303/1000305 initiales) : les tests
+# boolean-based et error-based (quote seule) de sqlmap se recouvrent
+# presque systématiquement (une quote isolée déclenche généralement
+# aussi le test OR/AND numérique dans la même campagne). Fusionnées
+# en une seule signature 1000303 pour éviter le double comptage lors
+# du calcul du taux de FN/FP.
 #
-# LIMITES CONNUES (à documenter dans le rapport) :
+# --- Calibrage et validation empirique (test du 16/07/2026, run réel
+# de attack.sh contre web-eurostar, cf. Issue #19) ---
+# 88 requêtes HTTP réelles observées côté access.log (87 détectées par
+# 1000301, écart de 1 dû à une requête hors périmètre "id=").
+# Distribution temporelle : burst initial de 52 requêtes en < 1s puis
+# 18 requêtes la seconde suivante (phase --level=2), suffisant pour
+# déclencher 1000305 (count 20, seconds 10) dès le début de la
+# campagne — seuil validé tel quel, pas de recalibrage nécessaire
+# (comportement "un signal par campagne" voulu, à la différence du
+# seuil du Scénario B qui doit capturer chaque rafale individuellement).
+# Analyse des payloads réels a révélé une famille de techniques
+# error-based non couverte (fonctions MySQL avec encodage hexadécimal,
+# sans quote ni AND/OR littéral : EXTRACTVALUE, UPDATEXML, GTID_SUBSET,
+# JSON_KEYS, EXP) -> ajout de la signature 1000306.
+#
+# LIMITES CONNUES (documentées dans le rapport, taux de FN) :
 # - Règle 1000301 contournable via --random-agent (non utilisé dans
 #   l'attack.sh actuel).
-# - Règles 1000302-1000304 ancrées sur "id=" : spécifiques au paramètre
-#   réel de ce lab, non génériques à toute application.
-# - Seuil de 1000305 indicatif, NON calibré empiriquement — à faire
-#   contre un run réel de attack.sh (méthode Scénario B, Issue #16)
-#   avant validation finale (Issue #20).
+# - Règles 1000302-1000304 et 1000306 ancrées sur "id=" : spécifiques
+#   au paramètre réel de ce lab, non génériques à toute application.
+# - FN résiduel assumé (non corrigé) : technique error-based par
+#   GROUP BY ... HAVING MIN(0) (clé dupliquée) et payloads de fuzzing
+#   de délimiteurs (ex. id=1.).'.,)".,, ) — familles de techniques
+#   supplémentaires, non couvertes par choix (rendement décroissant
+#   d'une approche uniquement par signature ; argument en faveur de
+#   la complémentarité avec l'approche comportementale et l'agent IA).
 # ============================================================
 
 alert http $EXTERNAL_NET any -> $DMZ_NET $HTTP_PORTS (msg:"SCENARIO_C SQLMAP User-Agent Detected"; flow:to_server,established; http.user_agent; content:"sqlmap"; nocase; classtype:web-application-attack; metadata: scenario C, mitre_tactic TA0001_InitialAccess, mitre_technique T1190; reference:url,attack.mitre.org/techniques/T1190/; sid:1000301; rev:1;)
@@ -40,3 +59,5 @@ alert http $EXTERNAL_NET any -> $DMZ_NET $HTTP_PORTS (msg:"SCENARIO_C SQLI Quote
 alert http $EXTERNAL_NET any -> $DMZ_NET $HTTP_PORTS (msg:"SCENARIO_C SQLI Time-Based Blind Pattern"; flow:to_server,established; http.uri; content:"id="; nocase; pcre:"/(SLEEP\(|BENCHMARK\(|WAITFOR\s+DELAY)/i"; classtype:web-application-attack; metadata: scenario C, mitre_tactic TA0001_InitialAccess, mitre_technique T1190; reference:url,attack.mitre.org/techniques/T1190/; sid:1000304; rev:1;)
 
 alert http $EXTERNAL_NET any -> $DMZ_NET $HTTP_PORTS (msg:"SCENARIO_C SQLMAP Campaign - High Request Volume on Injectable Endpoint"; flow:to_server,established; http.uri; content:"id="; nocase; threshold:type both, track by_src, count 20, seconds 10; classtype:web-application-attack; metadata: scenario C, mitre_tactic TA0009_Collection, mitre_technique T1213; reference:url,attack.mitre.org/techniques/T1213/; sid:1000305; rev:1;)
+
+alert http $EXTERNAL_NET any -> $DMZ_NET $HTTP_PORTS (msg:"SCENARIO_C SQLI MySQL Error-Based Function Pattern"; flow:to_server,established; http.uri; content:"id="; nocase; pcre:"/(EXTRACTVALUE|UPDATEXML|GTID_SUBSET|JSON_KEYS|EXP\()/i"; classtype:web-application-attack; metadata: scenario C, mitre_tactic TA0001_InitialAccess, mitre_technique T1190; reference:url,attack.mitre.org/techniques/T1190/; sid:1000306; rev:1;)
