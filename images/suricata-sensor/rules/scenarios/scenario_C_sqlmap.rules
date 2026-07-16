@@ -1,0 +1,42 @@
+# ============================================================
+# Scénario C — Injection SQL (sqlmap)
+# TFE Eurostar — Kill chain : TA0001/T1190 (Exploit Public-Facing
+#                              Application), TA0009/T1213 (Data from
+#                              Information Repositories)
+# Commande de référence : sqlmap -u "http://10.0.10.10/index.php?id=1"
+#                          --batch --dbs (cf. scenarios/C_sqlmap/attack.sh)
+# Plage SID réservée : 1000300-1000399
+# Mode : alert-only (validation IDS, aucun blocage à ce stade)
+# Cible : $DMZ_NET (10.0.10.0/24), port $HTTP_PORTS (80)
+#
+# NB : contrairement au Scénario B (SSH chiffré), le trafic HTTP est
+# en clair — visibilité complète sur URI, headers et payloads.
+# Détection combinant signature (payloads SQLi classiques, User-Agent
+# sqlmap par défaut) et comportement (volume de requêtes sur le
+# paramètre injectable).
+#
+# NB (rev suite fusion 1000303/1000305) : les tests boolean-based et
+# error-based de sqlmap se recouvrent presque systématiquement (une
+# quote isolée déclenche généralement aussi le test OR/AND numérique
+# dans la même campagne). Fusionnées en une seule signature 1000303
+# pour éviter le double comptage lors du calcul du taux de FN/FP.
+#
+# LIMITES CONNUES (à documenter dans le rapport) :
+# - Règle 1000301 contournable via --random-agent (non utilisé dans
+#   l'attack.sh actuel).
+# - Règles 1000302-1000304 ancrées sur "id=" : spécifiques au paramètre
+#   réel de ce lab, non génériques à toute application.
+# - Seuil de 1000305 indicatif, NON calibré empiriquement — à faire
+#   contre un run réel de attack.sh (méthode Scénario B, Issue #16)
+#   avant validation finale (Issue #20).
+# ============================================================
+
+alert http $EXTERNAL_NET any -> $DMZ_NET $HTTP_PORTS (msg:"SCENARIO_C SQLMAP User-Agent Detected"; flow:to_server,established; http.user_agent; content:"sqlmap"; nocase; classtype:web-application-attack; metadata: scenario C, mitre_tactic TA0001_InitialAccess, mitre_technique T1190; reference:url,attack.mitre.org/techniques/T1190/; sid:1000301; rev:1;)
+
+alert http $EXTERNAL_NET any -> $DMZ_NET $HTTP_PORTS (msg:"SCENARIO_C SQLI UNION SELECT Pattern"; flow:to_server,established; http.uri; content:"UNION"; nocase; content:"SELECT"; nocase; distance:0; classtype:web-application-attack; metadata: scenario C, mitre_tactic TA0001_InitialAccess, mitre_technique T1190; reference:url,attack.mitre.org/techniques/T1190/; sid:1000302; rev:1;)
+
+alert http $EXTERNAL_NET any -> $DMZ_NET $HTTP_PORTS (msg:"SCENARIO_C SQLI Quote/Boolean Injection Pattern (Error/Boolean-Based)"; flow:to_server,established; http.uri; content:"id="; nocase; pcre:"/id=[^&]*(?:(\%27|\x27)|(?:(OR|AND)\s+[0-9]+\s*=\s*[0-9]+))/i"; classtype:web-application-attack; metadata: scenario C, mitre_tactic TA0001_InitialAccess, mitre_technique T1190; reference:url,attack.mitre.org/techniques/T1190/; sid:1000303; rev:1;)
+
+alert http $EXTERNAL_NET any -> $DMZ_NET $HTTP_PORTS (msg:"SCENARIO_C SQLI Time-Based Blind Pattern"; flow:to_server,established; http.uri; content:"id="; nocase; pcre:"/(SLEEP\(|BENCHMARK\(|WAITFOR\s+DELAY)/i"; classtype:web-application-attack; metadata: scenario C, mitre_tactic TA0001_InitialAccess, mitre_technique T1190; reference:url,attack.mitre.org/techniques/T1190/; sid:1000304; rev:1;)
+
+alert http $EXTERNAL_NET any -> $DMZ_NET $HTTP_PORTS (msg:"SCENARIO_C SQLMAP Campaign - High Request Volume on Injectable Endpoint"; flow:to_server,established; http.uri; content:"id="; nocase; threshold:type both, track by_src, count 20, seconds 10; classtype:web-application-attack; metadata: scenario C, mitre_tactic TA0009_Collection, mitre_technique T1213; reference:url,attack.mitre.org/techniques/T1213/; sid:1000305; rev:1;)

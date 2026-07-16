@@ -8,6 +8,9 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y \
     apache2 \
     mariadb-server \
+    php \
+    libapache2-mod-php \
+    php-mysql \
     iproute2 \
     iputils-ping \
     curl \
@@ -15,6 +18,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 COPY index.html /var/www/html/index.html
+COPY index.php /var/www/html/index.php
 
 # --- Wazuh Agent (installation au build, dépôt officiel) ---
 RUN curl -s https://packages.wazuh.com/key/GPG-KEY-WAZUH | gpg --no-default-keyring --keyring gnupg-ring:/usr/share/keyrings/wazuh.gpg --import \
