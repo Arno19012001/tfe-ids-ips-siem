@@ -1,0 +1,29 @@
+<!-- ============================================================
+     Decodeur personnalise Wazuh - TFE Eurostar
+     Issue #22 - Sprint 4 (Iteration 2, partie 2)
+
+     Objectif : peupler le champ statique srcip pour les evenements
+     Suricata (decodeur json generique), qui ne le fait pas par
+     defaut (seuls les champs dynamiques comme src_ip sont extraits).
+     Necessaire pour utiliser same_source_ip dans la regle de
+     correlation 100051 (wazuh/rules/custom_rules.xml), de la meme
+     maniere que le decodeur natif sshd le fait deja pour les
+     evenements HIDS (rule 40112).
+
+     Reference : Wazuh Documentation - JSON decoder - "Mixing of
+     plugin decoders with regular expressions" (decodeurs freres
+     du meme parent, l'un via JSON_Decoder, l'autre via regex+order)
+     https://documentation.wazuh.com/current/user-manual/ruleset/decoders/json-decoder.html
+
+     Verifie empiriquement le 23/07/2026 : same_field echoue car
+     srcip (sshd, decodeur natif) est un champ statique tandis que
+     src_ip (Suricata, decodeur json generique) n'est qu'un champ
+     dynamique - same_field ne fonctionne pas avec les champs
+     statiques (documentation officielle).
+     ============================================================ -->
+
+<decoder name="suricata-json-srcip">
+  <parent>json</parent>
+  <regex>"src_ip":"(\d+.\d+.\d+.\d+)"</regex>
+  <order>srcip</order>
+</decoder>
