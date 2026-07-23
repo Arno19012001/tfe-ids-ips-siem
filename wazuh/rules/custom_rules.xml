@@ -1,0 +1,54 @@
+<!-- ============================================================
+     Correlation d'evenements Wazuh - TFE Eurostar
+     Issue #22 - Sprint 4 (Iteration 2, partie 2)
+
+     Objectif : detecter une sequence d'attaque coherente (kill chain)
+     entre le Scenario A (reconnaissance Nmap) et le Scenario B
+     (compromission SSH par force brute Hydra), pour une meme IP
+     source, dans une fenetre de 10 minutes.
+
+     Plage d'ID reservee : 100050-100099
+
+     Dependances :
+       - Regle Suricata generique 86601 (decodeur JSON par defaut,
+         alertes eve.json)
+       - Regle native Wazuh 40112 (sshd_rules.xml, "Multiple
+         authentication failures followed by a success" -
+         correlation echec->succes du Scenario B, deja native,
+         aucune regle personnalisee necessaire pour cette partie)
+
+     Note technique : les evenements Suricata sont decodes par le
+     decodeur generique "json" (pas de decodeur Suricata dedie dans
+     ce lab), qui ne peuple pas le champ canonique srcip. La
+     correlation par IP source utilise donc same_field/src_ip
+     (champ dynamique JSON, disponible depuis Wazuh 3.9) plutot que
+     same_source_ip, qui aurait silencieusement echoue (verifie
+     empiriquement le 23/07/2026 sur une alerte reelle SID 1000101).
+     ============================================================ -->
+
+<group name="scenario_a,scenario_b,correlation,">
+
+<rule id="100050" level="7">
+  <if_sid>86601</if_sid>
+  <field name="alert.signature_id">^1000101$</field>
+  <description>Suricata: Scenario A - Scan SYN Nmap detecte (isole pour correlation)</description>
+  <mitre>
+    <id>T1046</id>
+  </mitre>
+  <group>recon,scenario_a,</group>
+</rule>
+
+<rule id="100051" level="15" frequency="1" timeframe="600">
+  <if_sid>40112</if_sid>
+  <if_matched_sid>100050</if_matched_sid>
+  <same_field>src_ip</same_field>
+  <description>Kill chain: reconnaissance reseau (Scenario A) suivie d'une compromission SSH par force brute (Scenario B) - source $(src_ip)</description>
+  <mitre>
+    <id>T1046</id>
+    <id>T1110.001</id>
+    <id>T1078</id>
+  </mitre>
+  <group>attack_success,scenario_a,scenario_b,kill_chain,</group>
+</rule>
+
+</group>
