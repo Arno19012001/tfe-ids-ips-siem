@@ -4,21 +4,35 @@
 
      Objectif : peupler le champ statique srcip pour les evenements
      Suricata (decodeur json generique), qui ne le fait pas par
-     defaut (seuls les champs dynamiques comme src_ip sont extraits).
+     defaut.
 
-     IMPORTANT - decodeur "sibling" (meme nom que le parent "json"),
-     et non un enfant a nom distinct. Premiere tentative avec un nom
-     distinct ("suricata-json-srcip") invalidee empiriquement le
-     23/07/2026 : Wazuh arrete la recherche des qu'un decodeur enfant
-     correspond et n'utilise QUE son extraction, remplacant celle du
-     parent (confirme par wazuh-logtest : alert.signature_id et tous
-     les autres champs dynamiques avaient disparu). Les decodeurs
-     "sibling" (meme nom litteral que leur parent) sont le mecanisme
-     documente pour fusionner plusieurs extractions au lieu de les
-     remplacer.
-     Reference : Wazuh Documentation - Sibling Decoders
+     IMPORTANT - le decodeur racine "json" (voir
+     /var/ossec/ruleset/decoders/0006-json_decoders.xml) fait lui-meme
+     l'extraction complete via plugin_decoder JSON_Decoder, sans
+     passer par un enfant. Deux tentatives precedentes invalidees
+     empiriquement le 23/07/2026 :
+       1) enfant a nom distinct ("suricata-json-srcip") : remplace
+          entierement l'extraction de la racine (wazuh-logtest ne
+          montrait plus que srcip, alert.signature_id disparu)
+       2) enfant "sibling" simple (meme nom "json", regex seule) :
+          meme symptome - la racine n'a pas d'enfant existant a
+          completer, donc rien a fusionner
+     Solution retenue : dupliquer fidelement la definition de la
+     racine (meme prematch, meme plugin_decoder) dans un decodeur
+     enfant "sibling", en plus d'un second sibling pour srcip - les
+     deux siblings sont verifies et fusionnes (meme nom "json",
+     "parents l'un de l'autre").
+     Reference : Wazuh Documentation - Sibling Decoders /
+     "Mixing of plugin decoders with regular expressions"
      https://documentation.wazuh.com/current/user-manual/ruleset/decoders/sibling-decoders.html
+     https://documentation.wazuh.com/current/user-manual/ruleset/decoders/json-decoder.html
      ============================================================ -->
+
+<decoder name="json">
+  <parent>json</parent>
+  <prematch>^{\s*"</prematch>
+  <plugin_decoder>JSON_Decoder</plugin_decoder>
+</decoder>
 
 <decoder name="json">
   <parent>json</parent>
