@@ -2,10 +2,10 @@
 set -e
 
 echo "[entrypoint] Configuration de l'interface MGMT eth0..."
-ip addr add 10.0.30.30/24 dev eth0 2>/dev/null || true
+ip addr add 10.0.30.30/24 dev eth0 2>/dev/null || echo "[entrypoint] AVERTISSEMENT : configuration IP échouée (capacité NET_ADMIN requise — normal hors GNS3)"
 ip route add default via 10.0.30.1 2>/dev/null || true
-ip link set eth0 up
-echo "[entrypoint] MGMT eth0 : 10.0.30.30/24 (passerelle 10.0.30.1)"
+ip link set eth0 up 2>/dev/null || echo "[entrypoint] AVERTISSEMENT : activation eth0 échouée (capacité NET_ADMIN requise — normal hors GNS3)"
+echo "[entrypoint] MGMT eth0 : tentative 10.0.30.30/24 (passerelle 10.0.30.1)"
 
 echo "[entrypoint] Démarrage du serveur Ollama (CPU-only, modèle pré-téléchargé au build)..."
 ollama serve &
