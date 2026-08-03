@@ -1,11 +1,11 @@
 """
 alert_prioritization.py — Priorisation automatique des alertes par IA
-TFE IDS/IPS & SIEM — Issue #21 — v4
+TFE IDS/IPS & SIEM — Issue #21 — v6
 
 Étape 1/5 : récupération (Indexer OpenSearch).
 Étape 2/5 : regroupement par incident.
-Étape 3/5 : agrégation des features + score composite (seuils NON calibrés,
-            reporté après Issue #40 — enrichissement du jeu de données).
+Étape 3/5 : agrégation des features + score composite.
+Étape 4/5 : classification contextuelle via LangChain + Ollama.
 
 Cf. Issue #38 : l'API Manager est dépréciée depuis Wazuh 4.3, seul
 l'Indexer (port 9200) est utilisé.
@@ -17,48 +17,50 @@ limité à la chaîne d'attaque testée ; bruit opérationnel/conformité exclu
 group_alerts_by_incident() : agent_id pour les événements structurellement
 locaux (LOCAL_EVENT_RULE_IDS), src_ip pour le reste, fenêtre glissante
 chaînée de 10 min (cohérente avec Issue #22). 361 alertes pré-correctif
-décodeur (Issue #22) sans src_ip exclues, documenté — décision motivée par
-la préservation de 16/16 alertes critiques (cf. historique de conception).
+décodeur (Issue #22) sans src_ip exclues, documenté.
 
-compute_composite_score() : 4 dimensions pondérées MANUELLEMENT (pas
-apprises — 42 incidents est insuffisant pour apprendre des poids sans
-surapprentissage) :
-- score Wazuh natif (rule_level_max / 16)           poids 0.35
-- type (groupes Wazuh : kill_chain, attack_success,
-  sql_injection/sqlinjection, authentication_failures) poids 0.35
-- fréquence (log1p(nombre d'alertes), plafonné)       poids 0.20
-- IP source (zone externe WAN vs interne)             poids 0.10
-Seuls les 2 seuils de coupure (normale/haute, haute/critique) seront
-calibrés empiriquement par F1-macro, après enrichissement du jeu de
-données via Issue #40 (42 incidents actuels jugés insuffisants pour une
-calibration statistiquement robuste).
+compute_composite_score() : 4 dimensions pondérées MANUELLEMENT (score
+Wazuh 0.35, type/groupes 0.35, fréquence 0.20, zone 0.10). Correctif
+empirique du 03/08/2026 sur le groupe "authentication_failed" (singulier,
+retiré) vs "authentication_failures" (pluriel, conservé). Séparation
+parfaite des 3 classes sur les 42 incidents actuels : critique
+[0.672-0.958], haute [0.464], normale [0.159-0.333].
 
-CORRECTIF EMPIRIQUE (03/08/2026) : TYPE_GROUP_WEIGHTS utilisait initialement
-"authentication_failed" (singulier) avec un poids de 0.6 — ce groupe Wazuh
-générique est présent sur N'IMPORTE QUEL échec d'authentification isolé,
-y compris bénin (rule_id 5760 seul, classé "normale"), pas seulement sur un
-vrai pattern de brute-force. Conséquence observée : l'incident 010__4 (86
-alertes, normale) obtenait un score composite de 0.468, SUPÉRIEUR au seul
-incident "haute" de l'échantillon (0.324) — inversion d'ordre inacceptable.
-Remplacé par "authentication_failures" (PLURIEL), qui n'accompagne
-empiriquement que les règles d'escalade réelles (40111/40112, seuil de
-répétition atteint). La dimension "fréquence" du score capture déjà le
-signal de répétition ; le singulier générique faisait double emploi, et
-mal. Découverte également d'une variante orthographique du ruleset Wazuh
-lui-même : "sqlinjection" (sans underscore) coexiste avec "sql_injection"
-selon les règles (31103/31171 vs 31106/31152) — les deux sont maintenant
-couvertes. Après correctif, séparation parfaite des 3 classes sur
-l'échantillon actuel : critique [0.672-0.958], haute [0.464], normale
-[0.159-0.333], aucun chevauchement.
+classify_with_llm() : IMPORTANT — ne reçoit JAMAIS GROUND_TRUTH_LABELS ni
+incident_ground_truth, uniquement le contexte factuel (niveau, groupes,
+durée, nombre d'alertes, zone, score composite). Toute fuite de la vérité
+terrain vers le prompt invaliderait la mesure de précision.
+
+CORRECTIF EMPIRIQUE (03/08/2026) : premier test sur l'incident kill chain
+le plus évident de l'échantillon (192.168.1.50__9, attack_success=True,
+kill_chain=True) a produit une classification "haute" au lieu de
+"critique", avec une justification INTERNEMENT CONTRADICTOIRE : le modèle
+citait "attack_success=True" puis en déduisait "une tentative d'intrusion
+qui n'a pas abouti" — inversion pure de la lecture d'un booléen pourtant
+non ambigu. Corrigé par (1) l'ajout de RÈGLES DE DÉCISION PRIORITAIRES
+explicites dans le prompt système, nommant précisément le contresens à
+éviter, et (2) le remplacement des booléens bruts (True/False) transmis
+au modèle par des libellés textuels explicites ("OUI — accès confirmé"),
+qui portent le sens directement plutôt que de reposer sur l'interprétation
+du modèle. Validation : 3 répétitions sur le même incident kill chain
+post-correctif → 3/3 "critique", stable, avec citation explicite des
+règles de décision dans la justification. Latence observée : 104.7s au
+premier appel (chargement du modèle), puis ~27s pour les appels suivants
+dans la fenêtre OLLAMA_KEEP_ALIVE (5 min par défaut) — pertinent pour
+estimer le temps total d'un traitement en lot des 42 incidents.
 """
 
 import os
-from typing import Optional
+import time
+from typing import Optional, Literal
 
 import numpy as np
 import requests
 import pandas as pd
 from dotenv import load_dotenv
+from pydantic import BaseModel, Field
+from langchain_ollama import ChatOllama
+from langchain_core.prompts import ChatPromptTemplate
 
 load_dotenv()
 
@@ -225,7 +227,7 @@ def group_alerts_by_incident(
     Regroupe les alertes en incidents distincts — base du calcul de la
     dimension "fréquence" du score composite et de la stratégie d'appel
     groupé au LLM (un appel par incident, pas par alerte brute, cf.
-    conception validée §4 : contrainte matérielle CPU-only, ~12s/appel).
+    conception validée §4 : contrainte matérielle CPU-only).
 
     Clé de regroupement :
     - agent_id pour LOCAL_EVENT_RULE_IDS (événements locaux à une machine,
@@ -304,6 +306,10 @@ def aggregate_incident_features(df_grouped: pd.DataFrame) -> pd.DataFrame:
     parmi les alertes qui le composent — un incident contenant ne serait-ce
     qu'une alerte critique (ex. corrélation kill chain) ne doit jamais être
     dilué par la majorité d'alertes de bruit qui l'accompagnent.
+
+    rule_descriptions : résumé des règles distinctes déclenchées (rule_id +
+    description, PAS l'étiquette de vérité terrain) — c'est ce champ qui
+    est transmis au LLM comme contexte factuel, cf. classify_with_llm().
     """
     records = []
     for incident_id, group in df_grouped.groupby("incident_id"):
@@ -322,6 +328,16 @@ def aggregate_incident_features(df_grouped: pd.DataFrame) -> pd.DataFrame:
 
         worst_rank = group["ground_truth"].map(GROUND_TRUTH_RANK).max()
 
+        rule_desc_pairs = (
+            group[["rule_id", "rule_description"]]
+            .drop_duplicates()
+            .sort_values("rule_id")
+        )
+        rule_descriptions = [
+            f"{row.rule_id} ({row.rule_description})"
+            for row in rule_desc_pairs.itertuples()
+        ][:6]
+
         records.append({
             "incident_id": incident_id,
             "grouping_key": group["grouping_key"].iloc[0],
@@ -329,6 +345,7 @@ def aggregate_incident_features(df_grouped: pd.DataFrame) -> pd.DataFrame:
             "end_time": group["timestamp_dt"].max(),
             "num_alertes": len(group),
             "rule_ids_distinct": sorted(group["rule_id"].unique().tolist()),
+            "rule_descriptions": rule_descriptions,
             "rule_level_max": group["rule_level"].max(),
             "rule_groups_union": sorted(rule_groups_union),
             "contains_attack_success": "attack_success" in rule_groups_union,
@@ -341,8 +358,7 @@ def aggregate_incident_features(df_grouped: pd.DataFrame) -> pd.DataFrame:
 
 
 # Noms de groupes Wazuh confirmés empiriquement le 03/08/2026 sur les 42
-# incidents observés (cf. section de vérification en fin de script) —
-# pas de suppositions non vérifiées.
+# incidents observés — pas de suppositions non vérifiées.
 TYPE_GROUP_WEIGHTS = [
     ("kill_chain", 1.0),
     ("attack_success", 0.9),
@@ -398,6 +414,107 @@ def compute_composite_score(df_incidents: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+# --- Classification contextuelle via LangChain + Ollama ---
+
+LLM_MODEL_NAME = "llama3.1:8b"
+
+SYSTEM_PROMPT = """Tu es un analyste SOC (Security Operations Center) expérimenté. Ta tâche est de classer un incident de sécurité détecté par un SIEM Wazuh en trois niveaux de priorité :
+
+- critique : compromission confirmée ou chaîne d'attaque complète aboutie (ex. accès obtenu après tentatives répétées, injection réussie, corrélation multi-étapes reconnaissance puis intrusion)
+- haute : intention malveillante claire (tentative d'exploitation, scan, brute force), sans confirmation de succès
+- normale : signal faible, bruit de fond, activité légitime ou échec isolé sans caractère répétitif marqué
+
+RÈGLES DE DÉCISION PRIORITAIRES, à appliquer avant toute autre considération :
+1. Si l'indicateur "Accès confirmé" vaut OUI, cela signifie qu'une PREUVE CONCRÈTE de compromission a déjà été observée par le SIEM (ex. connexion réussie après une série d'échecs, requête d'injection ayant produit une réponse serveur 200). Dans ce cas, classe l'incident en CRITIQUE. Ne classe JAMAIS ce cas en "haute" en interprétant OUI comme "tentative qui n'a pas abouti" — ce serait un contresens : OUI signifie explicitement que l'attaque A RÉUSSI.
+2. Si l'indicateur "Chaîne d'attaque confirmée" vaut OUI, cela signifie qu'une corrélation multi-étapes (reconnaissance suivie d'une intrusion) a déjà été validée par une règle de corrélation du SIEM lui-même. Classe systématiquement en CRITIQUE dans ce cas.
+3. Seulement si ces deux indicateurs valent NON, base ta décision sur le reste du contexte : niveau de sévérité natif du SIEM, groupes de règles déclenchées, nombre d'alertes et durée de l'incident, zone réseau d'origine, et le score composite déjà calculé (indicatif, pas définitif).
+
+Réponds uniquement selon le format structuré demandé, en français."""
+
+HUMAN_PROMPT_TEMPLATE = """Incident à classer :
+
+- Durée : {duration_minutes:.1f} minutes ({num_alertes} alertes)
+- Niveau Wazuh maximal observé : {rule_level_max}/16
+- Zone réseau source : {zone}
+- Groupes de règles déclenchés : {groups}
+- Règles distinctes observées : {rule_descriptions}
+- Accès confirmé : {attack_success_label}
+- Chaîne d'attaque confirmée : {kill_chain_label}
+- Score composite pré-calculé (0 à 1, indicatif) : {composite_score:.3f}
+
+Classe cet incident selon les règles de décision prioritaires."""
+
+
+class ClassificationIncident(BaseModel):
+    niveau: Literal["critique", "haute", "normale"] = Field(
+        description="Niveau de priorité de l'incident pour un analyste SOC"
+    )
+    justification: str = Field(
+        description="Justification concise (2-3 phrases) en français, exploitable par un analyste SOC"
+    )
+
+
+def classify_with_llm(incident_row: pd.Series, model_name: str = LLM_MODEL_NAME) -> dict:
+    """
+    Classifie un incident via LangChain + Ollama (modèle local, CPU-only).
+
+    IMPORTANT : ne reçoit jamais incident_ground_truth — uniquement le
+    contexte factuel de l'incident (cf. docstring du module). Toute fuite
+    de la vérité terrain invaliderait evaluate_precision().
+
+    Les booléens contains_attack_success/contains_kill_chain sont transmis
+    sous forme de libellés textuels explicites (pas True/False bruts) —
+    cf. docstring module, correctif suite à une inversion de lecture
+    constatée empiriquement le 03/08/2026.
+
+    Mesure et retourne la latence réelle. Observé empiriquement : ~105s au
+    premier appel (chargement du modèle), ~27-50s pour les appels suivants
+    dans la fenêtre OLLAMA_KEEP_ALIVE (5 min par défaut).
+    """
+    llm = ChatOllama(model=model_name, temperature=0)
+    structured_llm = llm.with_structured_output(ClassificationIncident)
+
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", SYSTEM_PROMPT),
+        ("human", HUMAN_PROMPT_TEMPLATE),
+    ])
+    chain = prompt | structured_llm
+
+    duration_minutes = (incident_row["end_time"] - incident_row["start_time"]).total_seconds() / 60
+    rule_descriptions = "; ".join(incident_row["rule_descriptions"]) if incident_row["rule_descriptions"] else "N/A"
+
+    attack_success_label = (
+        "OUI — accès ou compromission confirmé(e) par le SIEM"
+        if incident_row["contains_attack_success"]
+        else "NON — pas de confirmation de succès"
+    )
+    kill_chain_label = (
+        "OUI — chaîne d'attaque multi-étapes validée par corrélation"
+        if incident_row["contains_kill_chain"]
+        else "NON — pas de corrélation multi-étapes"
+    )
+
+    start = time.time()
+    result = chain.invoke({
+        "duration_minutes": duration_minutes,
+        "num_alertes": incident_row["num_alertes"],
+        "rule_level_max": incident_row["rule_level_max"],
+        "zone": incident_row["zone"],
+        "groups": ", ".join(incident_row["rule_groups_union"]),
+        "rule_descriptions": rule_descriptions,
+        "attack_success_label": attack_success_label,
+        "kill_chain_label": kill_chain_label,
+        "composite_score": incident_row["composite_score"],
+    })
+    latency = time.time() - start
+
+    return {
+        "llm_niveau": result.niveau,
+        "llm_justification": result.justification,
+        "llm_latency_seconds": latency,
+    }
+
+
 if __name__ == "__main__":
     df = fetch_alerts_from_indexer()
     print(f"Alertes récupérées : {len(df)}")
@@ -406,25 +523,30 @@ if __name__ == "__main__":
     df_scope = df[~df["rule_id"].isin(EXCLUDED_RULE_IDS)].copy()
     df_scope["ground_truth"] = df_scope["rule_id"].map(GROUND_TRUTH_LABELS)
 
-    print(f"Alertes dans le périmètre : {len(df_scope)} ({len(df_scope)/len(df)*100:.1f}%)")
-
     df_grouped = group_alerts_by_incident(df_scope)
-    print(f"Alertes conservées après regroupement : {len(df_grouped)}")
-    print(f"Nombre d'incidents distincts : {df_grouped['incident_id'].nunique()}")
-
     df_incidents = aggregate_incident_features(df_grouped)
     df_incidents = compute_composite_score(df_incidents)
 
-    print("\nAperçu des incidents :")
-    print(df_incidents[[
-        "incident_id", "num_alertes", "rule_level_max",
-        "contains_attack_success", "contains_kill_chain", "zone",
-        "incident_ground_truth", "composite_score"
-    ]].sort_values("composite_score", ascending=False).to_string(index=False))
+    print(f"\n{len(df_incidents)} incidents disponibles.")
 
-    print("\nDistribution du score composite par vérité terrain (seuils PAS ENCORE calibrés) :")
-    print(df_incidents.groupby("incident_ground_truth")["composite_score"].describe())
+    incident_critique = df_incidents.sort_values("composite_score", ascending=False).iloc[0]
+    incident_normale = df_incidents.sort_values("composite_score", ascending=True).iloc[0]
 
-    print("\nGroupes réels par incident (vérification des mots-clés de TYPE_GROUP_WEIGHTS) :")
-    for _, row in df_incidents.iterrows():
-        print(f"  {row['incident_id']:20s} ground_truth={row['incident_ground_truth']:9s} type_score={row['score_type']:.2f}  groups={row['rule_groups_union']}")
+    # Test de stabilité sur l'incident kill chain (3 répétitions) : temperature=0
+    # est censé être déterministe, mais empiriquement variable avec Ollama.
+    # Valide aussi que le correctif du prompt élimine l'inversion de lecture
+    # constatée le 03/08/2026 sur ce même incident.
+    print(f"\n=== Test de stabilité — incident kill chain (3 répétitions) ===")
+    print(f"incident_id={incident_critique['incident_id']}, composite_score={incident_critique['composite_score']:.3f}, "
+          f"ground_truth réelle (NON transmise au LLM)={incident_critique['incident_ground_truth']}")
+    for i in range(3):
+        result = classify_with_llm(incident_critique)
+        print(f"  Run {i+1} -> {result['llm_niveau']} ({result['llm_latency_seconds']:.1f}s) — {result['llm_justification']}")
+
+    print(f"\n=== Test de régression — incident normale ===")
+    print(f"incident_id={incident_normale['incident_id']}, composite_score={incident_normale['composite_score']:.3f}, "
+          f"ground_truth réelle (NON transmise au LLM)={incident_normale['incident_ground_truth']}")
+    result = classify_with_llm(incident_normale)
+    print(f"  -> Classification LLM : {result['llm_niveau']}")
+    print(f"  -> Justification      : {result['llm_justification']}")
+    print(f"  -> Latence            : {result['llm_latency_seconds']:.1f}s")
