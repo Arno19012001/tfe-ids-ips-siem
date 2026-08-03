@@ -28,6 +28,18 @@
      invalidee empiriquement le 23/07/2026 : same_field ne fonctionne
      pas avec les champs statiques (srcip du decodeur sshd natif),
      asymetrie non anticipee entre les deux sources d'evenements.
+
+     IMPORTANT - global_frequency : cette correlation est inter-agents
+     par nature (100050 vient de l'agent suricata-sensor, 40112/100051
+     de l'agent ssh-eurostar). Par defaut, Wazuh ne comptabilise
+     frequency/timeframe qu'au sein du MEME agent. Sans <global_frequency/>,
+     100051 ne se declenche jamais en conditions reelles multi-agents,
+     meme si toutes les conditions semblent reunies (confirme
+     empiriquement le 23/07/2026 : test reussi via wazuh-logtest en
+     session unique - pas de notion d'agent distinct - mais echec
+     systematique en trafic reel multi-agents avant l'ajout de ce tag).
+     Reference : Wazuh Documentation - Rules Syntax - global_frequency
+     https://documentation.wazuh.com/current/user-manual/ruleset/ruleset-xml-syntax/rules.html#global-frequency
      ============================================================ -->
 
 <group name="scenario_a,scenario_b,correlation,">
@@ -46,6 +58,7 @@
   <if_sid>40112</if_sid>
   <if_matched_sid>100050</if_matched_sid>
   <same_source_ip/>
+  <global_frequency/>
   <description>Kill chain: reconnaissance reseau (Scenario A) suivie d'une compromission SSH par force brute (Scenario B) - source $(srcip)</description>
   <mitre>
     <id>T1046</id>
