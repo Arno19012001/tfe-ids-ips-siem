@@ -1,0 +1,4 @@
+it2/*.csv
+it2/__pycache__/
+it2/.env
+mvp/__pycache__/
