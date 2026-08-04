@@ -1,11 +1,21 @@
 """
 alert_prioritization.py — Priorisation automatique des alertes par IA
-TFE IDS/IPS & SIEM — Issue #21 — v6
+TFE IDS/IPS & SIEM — Issue #21 — v7 (NON TESTÉ — checkpoint de fin de session)
+
+ATTENTION : cette version a été écrite et présentée le 03/08/2026 mais
+n'a JAMAIS pu être exécutée avec succès dans le conteneur ai-agent, à
+cause d'un problème réseau distinct (eth0 absent du conteneur après un
+`docker restart` effectué en dehors de l'interface GNS3 — GNS3 gère
+lui-même la création des interfaces virtuelles vers Switch1 et n'est pas
+informé d'un redémarrage déclenché directement via Docker). Committé tel
+quel comme point de sauvegarde, à valider à la prochaine session après
+un Stop/Start du nœud via l'interface GNS3 (pas `docker restart`).
 
 Étape 1/5 : récupération (Indexer OpenSearch).
 Étape 2/5 : regroupement par incident.
 Étape 3/5 : agrégation des features + score composite.
 Étape 4/5 : classification contextuelle via LangChain + Ollama.
+Étape 5/5 : évaluation de la précision (score seul vs score + LLM).
 
 Cf. Issue #38 : l'API Manager est dépréciée depuis Wazuh 4.3, seul
 l'Indexer (port 9200) est utilisé.
@@ -20,34 +30,28 @@ chaînée de 10 min (cohérente avec Issue #22). 361 alertes pré-correctif
 décodeur (Issue #22) sans src_ip exclues, documenté.
 
 compute_composite_score() : 4 dimensions pondérées MANUELLEMENT (score
-Wazuh 0.35, type/groupes 0.35, fréquence 0.20, zone 0.10). Correctif
-empirique du 03/08/2026 sur le groupe "authentication_failed" (singulier,
-retiré) vs "authentication_failures" (pluriel, conservé). Séparation
+Wazuh 0.35, type/groupes 0.35, fréquence 0.20, zone 0.10). Séparation
 parfaite des 3 classes sur les 42 incidents actuels : critique
 [0.672-0.958], haute [0.464], normale [0.159-0.333].
 
-classify_with_llm() : IMPORTANT — ne reçoit JAMAIS GROUND_TRUTH_LABELS ni
-incident_ground_truth, uniquement le contexte factuel (niveau, groupes,
-durée, nombre d'alertes, zone, score composite). Toute fuite de la vérité
-terrain vers le prompt invaliderait la mesure de précision.
+classify_with_llm() : ne reçoit JAMAIS incident_ground_truth. Correctif du
+03/08/2026 sur une inversion de lecture de booléen (cf. historique commit
+GitHub) — validé stable sur 3 répétitions + test de régression.
 
-CORRECTIF EMPIRIQUE (03/08/2026) : premier test sur l'incident kill chain
-le plus évident de l'échantillon (192.168.1.50__9, attack_success=True,
-kill_chain=True) a produit une classification "haute" au lieu de
-"critique", avec une justification INTERNEMENT CONTRADICTOIRE : le modèle
-citait "attack_success=True" puis en déduisait "une tentative d'intrusion
-qui n'a pas abouti" — inversion pure de la lecture d'un booléen pourtant
-non ambigu. Corrigé par (1) l'ajout de RÈGLES DE DÉCISION PRIORITAIRES
-explicites dans le prompt système, nommant précisément le contresens à
-éviter, et (2) le remplacement des booléens bruts (True/False) transmis
-au modèle par des libellés textuels explicites ("OUI — accès confirmé"),
-qui portent le sens directement plutôt que de reposer sur l'interprétation
-du modèle. Validation : 3 répétitions sur le même incident kill chain
-post-correctif → 3/3 "critique", stable, avec citation explicite des
-règles de décision dans la justification. Latence observée : 104.7s au
-premier appel (chargement du modèle), puis ~27s pour les appels suivants
-dans la fenêtre OLLAMA_KEEP_ALIVE (5 min par défaut) — pertinent pour
-estimer le temps total d'un traitement en lot des 42 incidents.
+evaluate_precision() / find_optimal_thresholds() : seuils de coupure
+calibrés par recherche en grille (maximisation F1-macro) sur les 42
+incidents ACTUELS — résultat PROVISOIRE, à recalibrer après enrichissement
+du jeu de données (Issue #40). Avec seulement 42 points et une séparation
+déjà parfaite des classes par le score composite, un F1=1.0 sur cet
+échantillon ne garantit pas la généralisation — risque de surapprentissage
+documenté explicitement plutôt que présenté comme un résultat définitif.
+
+run_llm_batch() : exécution du LLM sur un ensemble d'incidents, AVEC
+REPRISE SUR INTERRUPTION (checkpoint CSV) — un run complet sur 42
+incidents peut prendre 20-35 minutes en CPU-only, une interruption ne doit
+pas obliger à tout recommencer. Fonction séparée, pas appelée
+automatiquement dans __main__ (coût de temps trop élevé pour un run par
+défaut) — à invoquer volontairement, cf. instructions en bas de fichier.
 """
 
 import os
@@ -61,6 +65,7 @@ from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 from langchain_ollama import ChatOllama
 from langchain_core.prompts import ChatPromptTemplate
+from sklearn.metrics import classification_report, confusion_matrix, f1_score
 
 load_dotenv()
 
@@ -77,27 +82,7 @@ def fetch_alerts_from_indexer(
     max_alerts: int = 10000,
     page_size: int = 500,
 ) -> pd.DataFrame:
-    """
-    Récupère les alertes Wazuh depuis l'Indexer OpenSearch (pas l'API
-    Manager, dépréciée depuis 4.3 — cf. Issue #38).
-
-    Paramètres
-    ----------
-    start_time, end_time : bornes ISO 8601 sur le champ `timestamp`
-        (ex. "2026-08-03T00:00:00"). None = pas de borne de ce côté.
-    rule_ids : liste optionnelle de rule.id à filtrer, ex. ["100050", "100051"].
-        Les rule.id sont des CHAÎNES dans l'index (confirmé empiriquement),
-        pas des entiers.
-    max_alerts : garde-fou sur le nombre total d'alertes récupérées.
-    page_size : taille de page pour la pagination via search_after.
-
-    Retourne
-    --------
-    pd.DataFrame, une ligne par alerte : doc_id, timestamp, rule_id,
-    rule_level, rule_description, rule_groups (dédupliqués), mitre_id,
-    mitre_technique, mitre_tactic, agent_id, agent_name, agent_ip,
-    src_ip, full_log.
-    """
+    """Récupère les alertes Wazuh depuis l'Indexer OpenSearch (cf. Issue #38)."""
     query_filters = []
     if start_time or end_time:
         range_filter = {"range": {"timestamp": {}}}
@@ -175,7 +160,6 @@ def fetch_alerts_from_indexer(
     return pd.DataFrame(records)
 
 
-# --- Vérité terrain établie par inspection du ruleset (03/08/2026) ---
 EXCLUDED_RULE_IDS = {
     "501", "502", "503", "504", "506",
     "5402", "5403",
@@ -211,11 +195,7 @@ GROUND_TRUTH_LABELS = {
     "5715":   "normale",
 }
 
-# Événements structurellement locaux (session/échec sur une machine, pas
-# un flux réseau) — regroupés par agent_id, jamais par src_ip.
 LOCAL_EVENT_RULE_IDS = {"2501", "5501", "5502", "5503", "5557"}
-
-# Cohérent avec la fenêtre de corrélation déjà validée en Issue #22.
 INCIDENT_WINDOW_MINUTES = 10
 
 
@@ -223,30 +203,7 @@ def group_alerts_by_incident(
     df_scope: pd.DataFrame,
     window_minutes: int = INCIDENT_WINDOW_MINUTES,
 ) -> pd.DataFrame:
-    """
-    Regroupe les alertes en incidents distincts — base du calcul de la
-    dimension "fréquence" du score composite et de la stratégie d'appel
-    groupé au LLM (un appel par incident, pas par alerte brute, cf.
-    conception validée §4 : contrainte matérielle CPU-only).
-
-    Clé de regroupement :
-    - agent_id pour LOCAL_EVENT_RULE_IDS (événements locaux à une machine,
-      sans notion de flux réseau par nature)
-    - src_ip pour le reste
-
-    Alertes exclues (documenté, pas silencieux) : hors LOCAL_EVENT_RULE_IDS,
-    une src_ip manquante signale une alerte pré-correctif décodeur (Issue
-    #22) — limitation de données connue, cf. docstring du module.
-
-    Algorithme : fenêtre glissante CHAÎNÉE (pas des tranches fixes) — pour
-    chaque clé, les alertes triées chronologiquement forment un nouvel
-    incident dès que l'écart avec l'alerte précédente dépasse
-    window_minutes.
-
-    Retourne
-    --------
-    df_scope enrichi d'une colonne `incident_id` (ex. "192.168.1.50__3").
-    """
+    """Regroupe les alertes en incidents (fenêtre glissante chaînée)."""
     df = df_scope.copy()
     df["timestamp_dt"] = pd.to_datetime(df["timestamp"])
 
@@ -257,7 +214,7 @@ def group_alerts_by_incident(
     df = df[df["grouping_key"].notna()].copy()
     n_exclues = n_avant - len(df)
     if n_exclues > 0:
-        print(f"[group_alerts_by_incident] {n_exclues} alertes exclues (grouping_key manquante — limitation connue, cf. docstring)")
+        print(f"[group_alerts_by_incident] {n_exclues} alertes exclues (grouping_key manquante)")
 
     df = df.sort_values(["grouping_key", "timestamp_dt"]).reset_index(drop=True)
 
@@ -282,7 +239,6 @@ def group_alerts_by_incident(
 
 GROUND_TRUTH_RANK = {"normale": 0, "haute": 1, "critique": 2}
 RANK_TO_LABEL = {v: k for k, v in GROUND_TRUTH_RANK.items()}
-
 WAN_NETWORK = "192.168.1.0/24"
 
 
@@ -298,19 +254,7 @@ def _get_zone(ip: Optional[str]) -> Optional[str]:
 
 
 def aggregate_incident_features(df_grouped: pd.DataFrame) -> pd.DataFrame:
-    """
-    Transforme un DataFrame d'alertes (une ligne par alerte) en un
-    DataFrame d'incidents (une ligne par incident_id).
-
-    Vérité terrain d'un incident = niveau maximal ("pire cas l'emporte")
-    parmi les alertes qui le composent — un incident contenant ne serait-ce
-    qu'une alerte critique (ex. corrélation kill chain) ne doit jamais être
-    dilué par la majorité d'alertes de bruit qui l'accompagnent.
-
-    rule_descriptions : résumé des règles distinctes déclenchées (rule_id +
-    description, PAS l'étiquette de vérité terrain) — c'est ce champ qui
-    est transmis au LLM comme contexte factuel, cf. classify_with_llm().
-    """
+    """Transforme un DataFrame d'alertes en un DataFrame d'incidents."""
     records = []
     for incident_id, group in df_grouped.groupby("incident_id"):
         rule_groups_union = set()
@@ -357,16 +301,12 @@ def aggregate_incident_features(df_grouped: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(records)
 
 
-# Noms de groupes Wazuh confirmés empiriquement le 03/08/2026 sur les 42
-# incidents observés — pas de suppositions non vérifiées.
 TYPE_GROUP_WEIGHTS = [
     ("kill_chain", 1.0),
     ("attack_success", 0.9),
     ("sql_injection", 0.6),
-    ("sqlinjection", 0.6),               # variante orthographique confirmée empiriquement (192.168.1.50__3)
-    ("authentication_failures", 0.6),    # PLURIEL uniquement : n'accompagne que les règles d'escalade
-                                          # (40111/40112), contrairement au singulier "authentication_failed",
-                                          # présent sur tout échec isolé y compris bénin — cf. docstring module
+    ("sqlinjection", 0.6),
+    ("authentication_failures", 0.6),
 ]
 DEFAULT_TYPE_SCORE = 0.2
 
@@ -376,7 +316,7 @@ WEIGHT_FREQUENCY = 0.20
 WEIGHT_ZONE = 0.10
 
 MAX_RULE_LEVEL = 16
-FREQUENCY_LOG_CAP = 6.0  # np.log1p(400) ≈ 6.0, plafonne l'effet du plus gros incident observé
+FREQUENCY_LOG_CAP = 6.0
 
 
 def _type_score(groups_union: list) -> float:
@@ -387,16 +327,7 @@ def _type_score(groups_union: list) -> float:
 
 
 def compute_composite_score(df_incidents: pd.DataFrame) -> pd.DataFrame:
-    """
-    Calcule le score composite (4 dimensions pondérées manuellement,
-    poids fixes — cf. docstring du module pour la justification).
-
-    Validation empirique du 03/08/2026 sur les 42 incidents disponibles :
-    séparation parfaite des 3 classes de vérité terrain, aucun
-    chevauchement (critique [0.672-0.958], haute [0.464], normale
-    [0.159-0.333]). Seuils de coupure non encore calibrés formellement
-    (cf. Issue #40).
-    """
+    """Score composite (4 dimensions pondérées manuellement, poids fixes)."""
     df = df_incidents.copy()
 
     df["score_rule_level"] = df["rule_level_max"] / MAX_RULE_LEVEL
@@ -413,8 +344,6 @@ def compute_composite_score(df_incidents: pd.DataFrame) -> pd.DataFrame:
 
     return df
 
-
-# --- Classification contextuelle via LangChain + Ollama ---
 
 LLM_MODEL_NAME = "llama3.1:8b"
 
@@ -456,20 +385,9 @@ class ClassificationIncident(BaseModel):
 
 def classify_with_llm(incident_row: pd.Series, model_name: str = LLM_MODEL_NAME) -> dict:
     """
-    Classifie un incident via LangChain + Ollama (modèle local, CPU-only).
-
-    IMPORTANT : ne reçoit jamais incident_ground_truth — uniquement le
-    contexte factuel de l'incident (cf. docstring du module). Toute fuite
-    de la vérité terrain invaliderait evaluate_precision().
-
-    Les booléens contains_attack_success/contains_kill_chain sont transmis
-    sous forme de libellés textuels explicites (pas True/False bruts) —
-    cf. docstring module, correctif suite à une inversion de lecture
-    constatée empiriquement le 03/08/2026.
-
-    Mesure et retourne la latence réelle. Observé empiriquement : ~105s au
-    premier appel (chargement du modèle), ~27-50s pour les appels suivants
-    dans la fenêtre OLLAMA_KEEP_ALIVE (5 min par défaut).
+    Classifie un incident via LangChain + Ollama. Ne reçoit jamais
+    incident_ground_truth. Cf. docstring module pour l'historique du
+    correctif d'inversion de lecture de booléen.
     """
     llm = ChatOllama(model=model_name, temperature=0)
     structured_llm = llm.with_structured_output(ClassificationIncident)
@@ -515,6 +433,141 @@ def classify_with_llm(incident_row: pd.Series, model_name: str = LLM_MODEL_NAME)
     }
 
 
+def find_optimal_thresholds(df_incidents: pd.DataFrame, n_steps: int = 100) -> dict:
+    """
+    Recherche en grille des 2 seuils de coupure (normale/haute,
+    haute/critique) maximisant le F1-macro sur df_incidents.
+
+    ATTENTION : calibration PROVISOIRE sur l'échantillon actuel (42
+    incidents au 03/08/2026) — cf. avertissement docstring module.
+    À recalibrer après enrichissement du jeu de données (Issue #40).
+    """
+    scores = df_incidents["composite_score"].values
+    y_true = df_incidents["incident_ground_truth"].map(GROUND_TRUTH_RANK).values
+
+    score_min, score_max = scores.min(), scores.max()
+    candidates = np.linspace(score_min, score_max, n_steps)
+
+    best_f1 = -1.0
+    best_thresholds = (0.4, 0.6)
+
+    for t_haute in candidates:
+        for t_critique in candidates:
+            if t_critique <= t_haute:
+                continue
+            y_pred = np.where(scores >= t_critique, 2, np.where(scores >= t_haute, 1, 0))
+            f1 = f1_score(y_true, y_pred, average="macro", zero_division=0)
+            if f1 > best_f1:
+                best_f1 = f1
+                best_thresholds = (t_haute, t_critique)
+
+    return {
+        "threshold_haute": best_thresholds[0],
+        "threshold_critique": best_thresholds[1],
+        "f1_macro": best_f1,
+    }
+
+
+def evaluate_precision(
+    df_incidents: pd.DataFrame,
+    threshold_haute: float,
+    threshold_critique: float,
+    llm_column: Optional[str] = None,
+) -> dict:
+    """
+    Calcule précision/rappel/F1 par classe, à partir du score composite
+    seul (toujours) et, si llm_column est fourni (résultats déjà calculés
+    via run_llm_batch), en comparaison avec la classification LLM.
+
+    Ne nécessite PAS Ollama si llm_column est None — exécution immédiate.
+    """
+    df = df_incidents.copy()
+    df["score_only_rank"] = np.where(
+        df["composite_score"] >= threshold_critique, 2,
+        np.where(df["composite_score"] >= threshold_haute, 1, 0)
+    )
+    df["score_only_label"] = df["score_only_rank"].map(RANK_TO_LABEL)
+
+    y_true = df["incident_ground_truth"]
+    y_pred_score = df["score_only_label"]
+
+    results = {
+        "score_only": {
+            "report": classification_report(y_true, y_pred_score, zero_division=0, output_dict=True),
+            "confusion_matrix": confusion_matrix(y_true, y_pred_score, labels=["normale", "haute", "critique"]),
+            "f1_macro": f1_score(y_true, y_pred_score, average="macro", zero_division=0),
+        }
+    }
+
+    print("\n=== Évaluation : SCORE COMPOSITE SEUL ===")
+    print(f"Seuils utilisés : haute >= {threshold_haute:.3f}, critique >= {threshold_critique:.3f}")
+    print(classification_report(y_true, y_pred_score, zero_division=0))
+    print("Matrice de confusion (lignes=réel, colonnes=prédit) [normale, haute, critique] :")
+    print(results["score_only"]["confusion_matrix"])
+
+    if llm_column and llm_column in df.columns:
+        y_pred_llm = df[llm_column]
+        results["score_plus_llm"] = {
+            "report": classification_report(y_true, y_pred_llm, zero_division=0, output_dict=True),
+            "confusion_matrix": confusion_matrix(y_true, y_pred_llm, labels=["normale", "haute", "critique"]),
+            "f1_macro": f1_score(y_true, y_pred_llm, average="macro", zero_division=0),
+        }
+        print("\n=== Évaluation : SCORE + LLM ===")
+        print(classification_report(y_true, y_pred_llm, zero_division=0))
+        print("Matrice de confusion (lignes=réel, colonnes=prédit) [normale, haute, critique] :")
+        print(results["score_plus_llm"]["confusion_matrix"])
+
+        print(f"\n=== Comparaison F1-macro ===")
+        print(f"Score seul   : {results['score_only']['f1_macro']:.3f}")
+        print(f"Score + LLM  : {results['score_plus_llm']['f1_macro']:.3f}")
+
+    return results
+
+
+def run_llm_batch(df_incidents: pd.DataFrame, checkpoint_path: str = "/opt/ai-agent/it2/llm_batch_checkpoint.csv") -> pd.DataFrame:
+    """
+    Exécute classify_with_llm() sur tous les incidents de df_incidents,
+    AVEC REPRISE SUR INTERRUPTION : les résultats sont sauvegardés au fur
+    et à mesure dans checkpoint_path. Si le fichier existe déjà, les
+    incident_id déjà traités sont sautés (reprise, pas de recalcul).
+
+    Durée estimée : 20-35 min pour 42 incidents en CPU-only (cf. latences
+    mesurées le 03/08/2026 : ~105s au premier appel, ~27-50s ensuite dans
+    la fenêtre OLLAMA_KEEP_ALIVE). Nécessite qu'Ollama soit démarré.
+
+    Fonction volontairement NON appelée dans __main__ (coût de temps trop
+    élevé pour un run par défaut) — à invoquer explicitement.
+    """
+    if os.path.exists(checkpoint_path):
+        df_done = pd.read_csv(checkpoint_path)
+        done_ids = set(df_done["incident_id"])
+        print(f"[run_llm_batch] Reprise : {len(done_ids)} incidents déjà traités dans {checkpoint_path}")
+    else:
+        df_done = pd.DataFrame(columns=["incident_id", "llm_niveau", "llm_justification", "llm_latency_seconds"])
+        done_ids = set()
+
+    remaining = df_incidents[~df_incidents["incident_id"].isin(done_ids)]
+    print(f"[run_llm_batch] {len(remaining)} incidents restants sur {len(df_incidents)}")
+
+    for i, (_, incident_row) in enumerate(remaining.iterrows()):
+        try:
+            result = classify_with_llm(incident_row)
+            new_row = {
+                "incident_id": incident_row["incident_id"],
+                "llm_niveau": result["llm_niveau"],
+                "llm_justification": result["llm_justification"],
+                "llm_latency_seconds": result["llm_latency_seconds"],
+            }
+            df_done = pd.concat([df_done, pd.DataFrame([new_row])], ignore_index=True)
+            df_done.to_csv(checkpoint_path, index=False)
+            print(f"[run_llm_batch] ({i+1}/{len(remaining)}) {incident_row['incident_id']} -> {result['llm_niveau']} ({result['llm_latency_seconds']:.1f}s)")
+        except Exception as e:
+            print(f"[run_llm_batch] ERREUR sur {incident_row['incident_id']} : {e} — checkpoint conservé, relancer run_llm_batch() pour reprendre")
+            raise
+
+    return df_done
+
+
 if __name__ == "__main__":
     df = fetch_alerts_from_indexer()
     print(f"Alertes récupérées : {len(df)}")
@@ -529,24 +582,22 @@ if __name__ == "__main__":
 
     print(f"\n{len(df_incidents)} incidents disponibles.")
 
-    incident_critique = df_incidents.sort_values("composite_score", ascending=False).iloc[0]
-    incident_normale = df_incidents.sort_values("composite_score", ascending=True).iloc[0]
+    calibration = find_optimal_thresholds(df_incidents)
+    print(f"\n=== Calibration des seuils (PROVISOIRE — 42 incidents, cf. Issue #40) ===")
+    print(f"Seuil haute    : {calibration['threshold_haute']:.3f}")
+    print(f"Seuil critique : {calibration['threshold_critique']:.3f}")
+    print(f"F1-macro       : {calibration['f1_macro']:.3f}")
 
-    # Test de stabilité sur l'incident kill chain (3 répétitions) : temperature=0
-    # est censé être déterministe, mais empiriquement variable avec Ollama.
-    # Valide aussi que le correctif du prompt élimine l'inversion de lecture
-    # constatée le 03/08/2026 sur ce même incident.
-    print(f"\n=== Test de stabilité — incident kill chain (3 répétitions) ===")
-    print(f"incident_id={incident_critique['incident_id']}, composite_score={incident_critique['composite_score']:.3f}, "
-          f"ground_truth réelle (NON transmise au LLM)={incident_critique['incident_ground_truth']}")
-    for i in range(3):
-        result = classify_with_llm(incident_critique)
-        print(f"  Run {i+1} -> {result['llm_niveau']} ({result['llm_latency_seconds']:.1f}s) — {result['llm_justification']}")
+    evaluate_precision(
+        df_incidents,
+        threshold_haute=calibration["threshold_haute"],
+        threshold_critique=calibration["threshold_critique"],
+    )
 
-    print(f"\n=== Test de régression — incident normale ===")
-    print(f"incident_id={incident_normale['incident_id']}, composite_score={incident_normale['composite_score']:.3f}, "
-          f"ground_truth réelle (NON transmise au LLM)={incident_normale['incident_ground_truth']}")
-    result = classify_with_llm(incident_normale)
-    print(f"  -> Classification LLM : {result['llm_niveau']}")
-    print(f"  -> Justification      : {result['llm_justification']}")
-    print(f"  -> Latence            : {result['llm_latency_seconds']:.1f}s")
+    print("\n" + "=" * 70)
+    print("Pour lancer la comparaison SCORE + LLM (20-35 min, nécessite Ollama démarré) :")
+    print("  df_llm = run_llm_batch(df_incidents)")
+    print("  df_incidents_merged = df_incidents.merge(df_llm, on='incident_id')")
+    print("  evaluate_precision(df_incidents_merged, calibration['threshold_haute'],")
+    print("                      calibration['threshold_critique'], llm_column='llm_niveau')")
+    print("=" * 70)
