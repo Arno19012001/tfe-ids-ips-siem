@@ -48,8 +48,7 @@ VOLUME ["/root/.ollama"]
 # --- Code de l'agent IA ---
 COPY main.py /opt/ai-agent/main.py
 COPY mvp/ /opt/ai-agent/mvp/
-# COPY it2/ /opt/ai-agent/it2/
-# ^ décommenter une fois alert_prioritization.py committé (Issue #21, étape suivante)
+COPY it2/ /opt/ai-agent/it2/
 
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
