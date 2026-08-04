@@ -1,6 +1,6 @@
 """
 kill_chain_report.py — Reconstruction textuelle partielle de la kill chain
-TFE IDS/IPS & SIEM — Issue #23 — v3
+TFE IDS/IPS & SIEM — Issue #23 — v4
 
 Réutilise les briques de alert_prioritization.py (Issues #21/#22) :
 groupement par incident (group_alerts_by_incident) et le patron
@@ -56,6 +56,37 @@ Discovery est la tactique ATT&CK officiellement associée à T1046, et
 100051 (résultat de l'union de TOUTES les tactiques de ses 3 techniques
 déclarées T1046+T1110.001+T1078, T1078 étant une technique
 multi-tactique) — pas une caractéristique propre de l'étape 2 isolée.
+
+v4 (04/08/2026) : run empirique de v3 concluant (plus de substitution de
+tactique — étape 1 strictement Discovery/T1046, comme garanti par
+construction). Mais la description rédigée par le LLM pour l'étape 1
+mentionnait la force brute SSH, et celle de l'étape 2 mentionnait le
+scan Nmap. Ce n'est PAS une hallucination du LLM : la chronologie brute
+confirme un CHEVAUCHEMENT TEMPOREL RÉEL entre les deux scénarios dans
+le trafic capturé — l'alerte Suricata générique 86601 "SCENARIO_B SSH
+Brute Force" apparaît dès 10:14:26, avant la dernière occurrence de la
+règle 100050 (10:15:52) qui délimite la fin de l'étape 1 ; et des
+alertes 86601 "SCENARIO_A Nmap ... Probe" continuent d'apparaître
+jusqu'à 10:17:32, en plein milieu de l'étape 2. Résultat empirique
+intéressant en soi (probablement Hydra démarré avant la fin complète
+du scan Nmap dans le script d'attaque) — à mentionner dans le rapport
+de TFE — mais qui polluait le texte rédigé, car build_kill_chain_steps()
+transmettait au LLM TOUTES les descriptions de règles de la fenêtre
+temporelle de chaque étape, y compris les alertes génériques Suricata
+non taguées MITRE (86601, sans distinction de scénario au niveau du
+champ description une fois filtré). Correctif : le champ "descriptions"
+transmis au LLM est désormais restreint aux alertes taguées MITRE
+(celles qui déterminent réellement la tactique/technique de l'étape),
+via _step_dict(). nb_alertes reste un décompte honnête du volume BRUT
+de la fenêtre (chevauchement inclus) ; nb_alertes_taguees_mitre est
+ajouté pour rendre ce chevauchement traçable et discutable dans le
+rapport plutôt que masqué.
+
+Découverte empirique supplémentaire (v4) : la règle native Wazuh 5760
+("sshd: authentication failed") porte la technique T1021.004 (Remote
+Services: SSH — tactique Lateral Movement), donnée native de la base
+MITRE de Wazuh, non anticipée dans la conception initiale de l'Issue
+#23 (qui ne prévoyait que Discovery -> Initial Access).
 """
 
 import time
@@ -114,6 +145,31 @@ def _union_tags(sub_df: pd.DataFrame, column: str) -> list[str]:
     return sorted(values)
 
 
+def _step_dict(ordre: int, sub_df: pd.DataFrame) -> dict:
+    """
+    Construit le dictionnaire d'une étape à partir de sa fenêtre
+    d'alertes brute (sub_df, non filtrée). tactiques/techniques =
+    union sur TOUTE la fenêtre (signal MITRE de l'étape). descriptions
+    = restreintes aux alertes taguées MITRE (celles qui déterminent
+    réellement tactiques/techniques), pour éviter de transmettre au LLM
+    des descriptions d'alertes génériques appartenant en réalité à
+    l'autre scénario (chevauchement temporel réel, cf. docstring
+    module v4). Si aucune alerte de la fenêtre n'est taguée MITRE, on
+    retombe sur l'ensemble de la fenêtre plutôt que sur une liste vide.
+    """
+    tagged = sub_df[sub_df["mitre_tactic"].apply(lambda t: len(t) > 0)]
+    source_descriptions = tagged if len(tagged) > 0 else sub_df
+    return {
+        "ordre": ordre,
+        "rule_ids": sorted(sub_df["rule_id"].unique().tolist()),
+        "tactiques": _union_tags(sub_df, "mitre_tactic"),
+        "techniques": _union_tags(sub_df, "mitre_id"),
+        "nb_alertes": int(len(sub_df)),
+        "nb_alertes_taguees_mitre": int(len(tagged)),
+        "descriptions": sorted(source_descriptions["rule_description"].unique().tolist()),
+    }
+
+
 def build_kill_chain_steps(df_timeline: pd.DataFrame) -> tuple[list[dict], dict]:
     """
     Segmentation DÉTERMINISTE en étapes (aucun appel LLM ici).
@@ -129,6 +185,13 @@ def build_kill_chain_steps(df_timeline: pd.DataFrame) -> tuple[list[dict], dict]
     La règle 100051 est traitée séparément (correlation_info) : ses
     tags MITRE sont l'agrégat des DEUX étapes, pas le signal propre de
     l'étape 2, et l'inclure dans l'étape 2 fausserait sa caractérisation.
+
+    nb_alertes (volume brut de la fenêtre temporelle) peut être
+    sensiblement supérieur à nb_alertes_taguees_mitre : les deux
+    scénarios se chevauchent réellement dans le trafic capturé (cf.
+    docstring module v4) — des alertes génériques de l'autre scénario
+    tombent dans la fenêtre temporelle sans pour autant porter de tag
+    MITRE ni influencer la description rédigée de l'étape.
 
     Suppose un incident kill chain complet (contains_kill_chain=True) —
     lève une erreur explicite sinon plutôt qu'un résultat partiel silencieux.
@@ -154,22 +217,8 @@ def build_kill_chain_steps(df_timeline: pd.DataFrame) -> tuple[list[dict], dict]
     correlation_alert = df.loc[cut_step2]
 
     steps = [
-        {
-            "ordre": 1,
-            "rule_ids": sorted(step1_alerts["rule_id"].unique().tolist()),
-            "tactiques": _union_tags(step1_alerts, "mitre_tactic"),
-            "techniques": _union_tags(step1_alerts, "mitre_id"),
-            "nb_alertes": int(len(step1_alerts)),
-            "descriptions": sorted(step1_alerts["rule_description"].unique().tolist()),
-        },
-        {
-            "ordre": 2,
-            "rule_ids": sorted(step2_alerts["rule_id"].unique().tolist()),
-            "tactiques": _union_tags(step2_alerts, "mitre_tactic"),
-            "techniques": _union_tags(step2_alerts, "mitre_id"),
-            "nb_alertes": int(len(step2_alerts)),
-            "descriptions": sorted(step2_alerts["rule_description"].unique().tolist()),
-        },
+        _step_dict(1, step1_alerts),
+        _step_dict(2, step2_alerts),
     ]
 
     correlation_info = {
@@ -193,8 +242,12 @@ def _format_steps_for_prompt(steps: list[dict], correlation_info: dict) -> str:
             f"- Règles Wazuh/Suricata impliquées : {', '.join(step['rule_ids'])}\n"
             f"- Tactique(s) MITRE ATT&CK : {tactiques}\n"
             f"- Technique(s) MITRE ATT&CK : {techniques}\n"
-            f"- Nombre d'alertes : {step['nb_alertes']}\n"
-            f"- Descriptions de règles observées : {'; '.join(step['descriptions'])}"
+            f"- Nombre d'alertes dans la fenêtre temporelle : {step['nb_alertes']} "
+            f"(dont {step['nb_alertes_taguees_mitre']} directement rattachées aux "
+            f"tactiques/techniques ci-dessus — les autres sont des alertes génériques "
+            f"qui tombent dans cette fenêtre sans nécessairement appartenir à cette étape)\n"
+            f"- Descriptions de règles observées (alertes taguées uniquement) : "
+            f"{'; '.join(step['descriptions'])}"
         )
     lines.append(
         f"\nCorrélation de kill chain confirmée par la règle Wazuh {correlation_info['rule_id']} "
@@ -321,6 +374,7 @@ def generate_kill_chain_report(
             "techniques": step["techniques"],
             "rule_ids": step["rule_ids"],
             "nb_alertes": step["nb_alertes"],
+            "nb_alertes_taguees_mitre": step["nb_alertes_taguees_mitre"],
             "description": descriptions_by_ordre[step["ordre"]],
         }
         for step in steps
@@ -361,7 +415,8 @@ if __name__ == "__main__":
         print("=== Étapes (segmentation et tags MITRE déterministes) ===")
         for etape in output["etapes"]:
             print(f"  Étape {etape['ordre']} — règles {etape['rule_ids']} "
-                  f"({etape['nb_alertes']} alertes)")
+                  f"({etape['nb_alertes']} alertes dans la fenêtre, dont "
+                  f"{etape['nb_alertes_taguees_mitre']} taguées MITRE)")
             print(f"    Tactique(s) : {', '.join(etape['tactiques']) or 'N/A'}")
             print(f"    Technique(s) : {', '.join(etape['techniques']) or 'N/A'}")
             print(f"    Description  : {etape['description']}")
