@@ -1,49 +1,61 @@
 """
 kill_chain_report.py — Reconstruction textuelle partielle de la kill chain
-TFE IDS/IPS & SIEM — Issue #23 — v2
+TFE IDS/IPS & SIEM — Issue #23 — v3
 
 Réutilise les briques de alert_prioritization.py (Issues #21/#22) :
 groupement par incident (group_alerts_by_incident) et le patron
 LangChain + ChatOllama + with_structured_output déjà validé pour
 classify_with_llm().
 
-Portée couverte : 2 étapes uniquement (Reconnaissance -> Initial Access),
-correspondant à l'enchaînement Scénario A (scan Nmap, technique MITRE
-T1046) -> Scénario B (brute force SSH abouti, T1110.001 + T1078), détecté
-par la règle de corrélation Wazuh 100051 (Issue #22). Ce n'est PAS une
-reconstruction de la kill chain complète (modèle Lockheed Martin à
-7 étapes) : présenté explicitement comme partiel dans le rapport généré,
-conformément au titre de l'Issue #23.
+Portée couverte : 2 étapes (Reconnaissance/Discovery -> compromission
+SSH/Credential Access), correspondant à l'enchaînement Scénario A (scan
+Nmap) -> Scénario B (brute force SSH abouti), détecté par la règle de
+corrélation Wazuh 100051 (Issue #22).
 
-CORRECTIF v2 (04/08/2026) — suite au premier run empirique (latence
-268,1s, incident 192.168.1.50__9) :
+HISTORIQUE DES CORRECTIFS :
 
-1. Wazuh résout TOUTES les tactiques ATT&CK associées à chaque technique
-   déclarée dans <mitre> d'une règle, pas une seule (contrairement à
-   l'hypothèse implicite de la v1). Ex. la règle 100051 (T1046 +
-   T1110.001 + T1078) résout vers 6 tactiques distinctes : Discovery,
-   Credential Access, Defense Evasion, Persistence, Privilege Escalation,
-   Initial Access. La règle 100050 (T1046 seul) résout uniquement vers
-   Discovery.
+v1 (04/08/2026) : premier run empirique (incident 192.168.1.50__9,
+latence 268,1s). Le LLM (Llama 3.1 8B, CPU-only) devait à la fois
+segmenter les étapes ET recopier fidèlement les tactiques/techniques
+MITRE fournies dans le contexte. Résultat : substitution non sollicitée
+de "Initial Access" à la tactique réellement fournie pour la règle
+100050 ("Discovery"), en violation de la règle anti-hallucination du
+prompt.
 
-2. Le premier rapport généré a substitué "Initial Access" à la tactique
-   réellement fournie pour la règle 100050 ("Discovery") — le modèle a
-   remplacé le libellé empirique par une étiquette qu'il jugeait plus
-   pédagogique pour désigner une reconnaissance, en violation de la
-   règle anti-hallucination du prompt v1. Correctif : règle de prompt
-   renforcée, imposant la recopie EXACTE du libellé fourni.
+v2 (04/08/2026) : renforcement du prompt (règle de recopie stricte +
+indicateur de succès explicite attack_success_label). Second run
+empirique : le problème persiste à l'identique (même substitution
+Discovery -> Initial Access), ET une étape supplémentaire non désirée
+apparaît ("User missed the password more than one time" isolée en
+étape 3), montrant que la segmentation par le LLM n'est pas stable
+d'un run à l'autre malgré temperature=0. Diagnostic : un LLM 8B local
+n'est pas fiable pour de la recopie factuelle structurée fidèle, quelle
+que soit la formulation du prompt — ce n'est pas un problème de prompt
+engineering mais une limite du modèle sur cette tâche précise.
 
-3. Le résumé narratif du premier rapport minimisait le succès de la
-   compromission SSH ("une tentative de compromission"), alors que la
-   règle 100051 documente un succès confirmé (if_sid=40112,
-   "authentication failures followed by a success"). La v1 ne
-   transmettait aucun indicateur explicite de succès au LLM — correctif :
-   ajout d'un indicateur attack_success_label dans le prompt, réutilisant
-   contains_attack_success (déjà calculé par aggregate_incident_features,
-   même patron que classify_with_llm() pour ce champ).
+v3 (04/08/2026) : changement d'architecture. La segmentation en étapes
+ET le calcul des tactiques/techniques MITIRE par étape sont désormais
+ENTIÈREMENT déterministes (Python pur, build_kill_chain_steps()), basés
+sur la structure connue et validée du lab (règle 100050 = fin de
+l'étape Scénario A, règle 100051 = fin de l'étape Scénario B / clôture
+de la corrélation — structure documentée depuis les Issues #12-22, pas
+une inférence automatique). Le LLM ne reçoit plus la chronologie brute
+alerte par alerte : il reçoit un résumé déjà segmenté et étiqueté, et
+son unique tâche est de rédiger une description en français par étape
+déjà numérotée, plus un résumé narratif global. Il ne peut plus
+halluciner de tactique/technique puisqu'on ne lui demande plus de les
+produire — même logique de séparation que compute_composite_score()
+(déterministe) vs classify_with_llm() (jugement contextuel).
 
-Ces deux correctifs n'ont pas encore été validés empiriquement sur un
-second run — à faire avant de clôturer l'Issue #23.
+Effet de bord à documenter dans le rapport de TFE : les tactiques
+MITRE réellement résolues par Wazuh sont "Discovery" (T1046) et
+"Credential Access" (séquence SSH), pas littéralement "Reconnaissance"
+et "Initial Access" comme formulé dans le titre de l'Issue #23 —
+Discovery est la tactique ATT&CK officiellement associée à T1046, et
+"Initial Access" n'apparaît que sur l'alerte de corrélation agrégée
+100051 (résultat de l'union de TOUTES les tactiques de ses 3 techniques
+déclarées T1046+T1110.001+T1078, T1078 étant une technique
+multi-tactique) — pas une caractéristique propre de l'étape 2 isolée.
 """
 
 import time
@@ -83,7 +95,7 @@ def build_kill_chain_timeline(df_grouped: pd.DataFrame, incident_id: str) -> pd.
     for _, row in incident_alerts.iterrows():
         timeline.append({
             "timestamp": row["timestamp_dt"],
-            "rule_id": row["rule_id"],
+            "rule_id": str(row["rule_id"]),
             "rule_description": row["rule_description"],
             "rule_groups": row["rule_groups"],
             "mitre_id": row["mitre_id"] if isinstance(row["mitre_id"], list) else [],
@@ -94,48 +106,118 @@ def build_kill_chain_timeline(df_grouped: pd.DataFrame, incident_id: str) -> pd.
     return pd.DataFrame(timeline)
 
 
-def _format_timeline_for_prompt(df_timeline: pd.DataFrame) -> str:
+def _union_tags(sub_df: pd.DataFrame, column: str) -> list[str]:
+    """Union triée, sans doublon, des valeurs d'une colonne liste (mitre_tactic ou mitre_id)."""
+    values: set[str] = set()
+    for tags in sub_df[column]:
+        values.update(tags)
+    return sorted(values)
+
+
+def build_kill_chain_steps(df_timeline: pd.DataFrame) -> tuple[list[dict], dict]:
     """
-    Formate la chronologie en texte, avec offset relatif au premier
-    événement. Le champ tactique(s) est explicitement étiqueté pour que
-    le prompt puisse imposer sa recopie exacte (cf. correctif v2 point 2).
+    Segmentation DÉTERMINISTE en étapes (aucun appel LLM ici).
+
+    Étape 1 : toutes les alertes jusqu'à la DERNIÈRE occurrence de la
+    règle 100050 incluse (recon confirmée, Scénario A).
+    Étape 2 : toutes les alertes suivantes jusqu'à la règle 100051
+    (exclue de l'étape 2 elle-même — cf. correlation_info ci-dessous),
+    Scénario B.
+
+    tactique_mitre / techniques_mitre par étape = union triée des
+    mitre_tactic / mitre_id des alertes de l'étape qui en portent.
+    La règle 100051 est traitée séparément (correlation_info) : ses
+    tags MITRE sont l'agrégat des DEUX étapes, pas le signal propre de
+    l'étape 2, et l'inclure dans l'étape 2 fausserait sa caractérisation.
+
+    Suppose un incident kill chain complet (contains_kill_chain=True) —
+    lève une erreur explicite sinon plutôt qu'un résultat partiel silencieux.
     """
-    if df_timeline.empty:
-        return "(aucune alerte)"
-    t0 = df_timeline["timestamp"].min()
-    lines = []
-    for _, row in df_timeline.iterrows():
-        offset = (row["timestamp"] - t0).total_seconds()
-        mitre_ids = ", ".join(row["mitre_id"]) if row["mitre_id"] else "N/A"
-        tactics = ", ".join(row["mitre_tactic"]) if row["mitre_tactic"] else "N/A"
-        lines.append(
-            f"- t+{offset:.0f}s | règle {row['rule_id']} ({row['rule_description']}) "
-            f"| groupes: {', '.join(row['rule_groups'])} | technique(s) MITRE: {mitre_ids} "
-            f"| tactique(s) MITRE fournie(s) pour cette règle: {tactics}"
+    df = df_timeline.sort_values("timestamp").reset_index(drop=True)
+
+    idx_100050 = df.index[df["rule_id"] == "100050"]
+    idx_100051 = df.index[df["rule_id"] == "100051"]
+
+    if len(idx_100050) == 0 or len(idx_100051) == 0:
+        raise ValueError(
+            "Segmentation impossible : règle 100050 et/ou 100051 absente de la "
+            "chronologie fournie — cette fonction suppose un incident kill chain "
+            "complet (cf. list_kill_chain_incidents)."
         )
-    return "\n".join(lines)
+
+    cut_step1 = idx_100050.max()
+    cut_step2 = idx_100051.max()
+
+    step1_alerts = df.loc[:cut_step1]
+    step2_window = df.loc[cut_step1 + 1: cut_step2]
+    step2_alerts = step2_window[step2_window["rule_id"] != "100051"]
+    correlation_alert = df.loc[cut_step2]
+
+    steps = [
+        {
+            "ordre": 1,
+            "rule_ids": sorted(step1_alerts["rule_id"].unique().tolist()),
+            "tactiques": _union_tags(step1_alerts, "mitre_tactic"),
+            "techniques": _union_tags(step1_alerts, "mitre_id"),
+            "nb_alertes": int(len(step1_alerts)),
+            "descriptions": sorted(step1_alerts["rule_description"].unique().tolist()),
+        },
+        {
+            "ordre": 2,
+            "rule_ids": sorted(step2_alerts["rule_id"].unique().tolist()),
+            "tactiques": _union_tags(step2_alerts, "mitre_tactic"),
+            "techniques": _union_tags(step2_alerts, "mitre_id"),
+            "nb_alertes": int(len(step2_alerts)),
+            "descriptions": sorted(step2_alerts["rule_description"].unique().tolist()),
+        },
+    ]
+
+    correlation_info = {
+        "rule_id": "100051",
+        "description": correlation_alert["rule_description"],
+        "tactiques": correlation_alert["mitre_tactic"],
+        "techniques": correlation_alert["mitre_id"],
+    }
+
+    return steps, correlation_info
 
 
-class EtapeKillChain(BaseModel):
-    ordre: int = Field(description="Position chronologique de l'étape (1, 2, ...)")
-    tactique_mitre: str = Field(
-        description="Tactique(s) MITRE ATT&CK de cette étape, RECOPIÉE(S) EXACTEMENT depuis le "
-                    "champ 'tactique(s) MITRE fournie(s)' de la chronologie fournie en contexte, "
-                    "sans aucune reformulation ni substitution"
+def _format_steps_for_prompt(steps: list[dict], correlation_info: dict) -> str:
+    """Résumé texte des étapes déjà segmentées, à destination du prompt LLM."""
+    lines = []
+    for step in steps:
+        techniques = ", ".join(step["techniques"]) if step["techniques"] else "aucune technique renseignée nativement"
+        tactiques = ", ".join(step["tactiques"]) if step["tactiques"] else "aucune tactique renseignée nativement"
+        lines.append(
+            f"Étape {step['ordre']} :\n"
+            f"- Règles Wazuh/Suricata impliquées : {', '.join(step['rule_ids'])}\n"
+            f"- Tactique(s) MITRE ATT&CK : {tactiques}\n"
+            f"- Technique(s) MITRE ATT&CK : {techniques}\n"
+            f"- Nombre d'alertes : {step['nb_alertes']}\n"
+            f"- Descriptions de règles observées : {'; '.join(step['descriptions'])}"
+        )
+    lines.append(
+        f"\nCorrélation de kill chain confirmée par la règle Wazuh {correlation_info['rule_id']} "
+        f"({correlation_info['description']})."
     )
-    techniques_mitre: str = Field(
-        description="Identifiant(s) de technique MITRE ATT&CK associés (ex. T1046, T1110.001), "
-                    "tels que fournis dans le contexte"
+    return "\n\n".join(lines)
+
+
+class DescriptionEtape(BaseModel):
+    ordre: int = Field(
+        description="Doit correspondre EXACTEMENT au numéro d'étape fourni dans le contexte "
+                    "(1 ou 2) — ne pas réordonner, fusionner ou ajouter d'étape"
     )
     description: str = Field(
-        description="Description factuelle et concise (1-2 phrases) de ce qui a été observé à "
-                    "cette étape, basée uniquement sur les alertes fournies"
+        description="Description factuelle et concise (1-2 phrases) en français de ce qui a "
+                    "été observé à cette étape, basée uniquement sur les règles, tactiques et "
+                    "volumes d'alertes fournis pour cette étape"
     )
 
 
 class RapportKillChain(BaseModel):
-    etapes: list[EtapeKillChain] = Field(
-        description="Étapes de la kill chain, dans l'ordre chronologique"
+    descriptions_etapes: list[DescriptionEtape] = Field(
+        description="Exactement une description par étape fournie en contexte, dans l'ordre"
     )
     resume_narratif: str = Field(
         description="Résumé narratif de 3 à 5 phrases en français, pour un analyste SOC, "
@@ -145,29 +227,29 @@ class RapportKillChain(BaseModel):
     )
     limite_couverture: str = Field(
         description="Rappel explicite, en une phrase, que cette reconstruction ne couvre que "
-                    "les étapes effectivement détectées, pas la kill chain complète"
+                    "les 2 étapes fournies, pas la kill chain complète (modèle Lockheed Martin "
+                    "à 7 étapes)"
     )
 
 
-KILLCHAIN_SYSTEM_PROMPT = """Tu es un analyste SOC chargé de rédiger un rapport de reconstruction de kill chain à partir d'une chronologie d'alertes SIEM déjà corrélées.
+KILLCHAIN_SYSTEM_PROMPT = """Tu es un analyste SOC chargé de rédiger la partie textuelle d'un rapport de reconstruction de kill chain. La segmentation en étapes et les tactiques/techniques MITRE ATT&CK de chaque étape ont déjà été calculées automatiquement et te sont fournies telles quelles — ce n'est PAS ta tâche de les déterminer, de les reformuler ou de les corriger.
 
 RÈGLES STRICTES, à respecter impérativement :
-1. Ne t'appuie QUE sur les alertes et métadonnées MITRE ATT&CK fournies dans le contexte. N'invente JAMAIS d'étape, de tactique ou de technique absente des alertes listées.
-2. Pour le champ tactique_mitre de chaque étape, RECOPIE EXACTEMENT le ou les libellé(s) de tactique fourni(s) dans la chronologie pour la ou les règles correspondantes (champ "tactique(s) MITRE fournie(s) pour cette règle"). Ne substitue JAMAIS ce libellé par une tactique que tu juges plus appropriée, plus intuitive ou plus pédagogique — même si le libellé fourni te semble contre-intuitif pour l'étape concernée (ex. ne remplace pas "Discovery" par "Initial Access" pour décrire une reconnaissance : recopie "Discovery" tel quel).
+1. Ta seule tâche est de rédiger, pour chaque étape déjà numérotée, une description factuelle en français, et de rédiger un résumé narratif global.
+2. N'invente JAMAIS d'étape supplémentaire, ne fusionne jamais les étapes fournies, ne modifie jamais leur numéro d'ordre.
 3. Si l'indicateur "Statut de compromission selon le SIEM" indique un succès confirmé, le résumé narratif DOIT refléter ce succès sans l'atténuer (ne pas écrire "tentative" si le SIEM documente un accès obtenu).
-4. Ne complète PAS la séquence avec des étapes hypothétiques du modèle Cyber Kill Chain (Weaponization, Delivery, C2, Actions on Objectives, etc.) si elles ne sont pas détectées empiriquement — documenter que la reconstruction reste PARTIELLE fait partie de l'objectif de ce rapport.
-5. Chaque étape du rapport correspond à un regroupement d'alertes par rôle dans l'attaque, dans l'ordre chronologique.
-6. Reste factuel et concis. Le résumé narratif s'adresse à un analyste SOC, pas à un public non technique.
+4. Ne complète PAS la séquence avec des étapes hypothétiques du modèle Cyber Kill Chain (Weaponization, Delivery, C2, Actions on Objectives, etc.) — la reconstruction reste volontairement PARTIELLE (2 étapes), et le rappeler fait partie de l'objectif de ce rapport.
+5. Reste factuel et concis. Le résumé s'adresse à un analyste SOC, pas à un public non technique.
 
 Réponds uniquement selon le format structuré demandé, en français."""
 
-KILLCHAIN_HUMAN_PROMPT_TEMPLATE = """Chronologie d'alertes corrélées pour l'incident {incident_id} (source : {grouping_key}) :
+KILLCHAIN_HUMAN_PROMPT_TEMPLATE = """Étapes de la kill chain pour l'incident {incident_id} (source : {grouping_key}), déjà segmentées et étiquetées :
 
-{timeline_text}
+{steps_summary}
 
 Statut de compromission selon le SIEM : {attack_success_label}
 
-Génère le rapport de reconstruction de kill chain pour cet incident, à partir uniquement des alertes et du statut de compromission ci-dessus."""
+Rédige la description de chaque étape ci-dessus (une description par ordre fourni), ainsi que le résumé narratif global et le rappel de limite de couverture."""
 
 
 def generate_kill_chain_report(
@@ -176,9 +258,10 @@ def generate_kill_chain_report(
     model_name: str = LLM_MODEL_NAME,
 ) -> dict:
     """
-    Génère un rapport structuré de reconstruction partielle de la kill
-    chain, via LangChain + Ollama (même patron que classify_with_llm(),
-    Issue #21).
+    Génère un rapport de reconstruction partielle de la kill chain.
+    Segmentation et tags MITRE : déterministes (build_kill_chain_steps).
+    Rédaction (description par étape + résumé narratif) : LangChain +
+    Ollama, même patron que classify_with_llm() (Issue #21).
 
     incident_row : ligne de df_incidents (sortie de
     aggregate_incident_features), utilisée pour incident_id et
@@ -190,8 +273,9 @@ def generate_kill_chain_report(
     if df_timeline.empty:
         raise ValueError(f"Aucune alerte trouvée pour incident_id={incident_id}")
 
+    steps, correlation_info = build_kill_chain_steps(df_timeline)
     grouping_key = df_grouped.loc[df_grouped["incident_id"] == incident_id, "grouping_key"].iloc[0]
-    timeline_text = _format_timeline_for_prompt(df_timeline)
+    steps_summary = _format_steps_for_prompt(steps, correlation_info)
 
     attack_success_label = (
         "OUI — accès ou compromission confirmé(e) par le SIEM"
@@ -209,17 +293,45 @@ def generate_kill_chain_report(
     chain = prompt | structured_llm
 
     start = time.time()
-    result = chain.invoke({
+    llm_result = chain.invoke({
         "incident_id": incident_id,
         "grouping_key": grouping_key,
-        "timeline_text": timeline_text,
+        "steps_summary": steps_summary,
         "attack_success_label": attack_success_label,
     })
     latency = time.time() - start
 
+    # Fusion : tags MITRE déterministes (steps) + description rédigée par le LLM,
+    # appariés par ordre. Si le LLM ne renvoie pas exactement une description par
+    # étape (ordre manquant ou dupliqué), on le signale plutôt que de fusionner
+    # silencieusement un mauvais alignement.
+    descriptions_by_ordre = {d.ordre: d.description for d in llm_result.descriptions_etapes}
+    missing = [step["ordre"] for step in steps if step["ordre"] not in descriptions_by_ordre]
+    if missing:
+        raise ValueError(
+            f"Le LLM n'a pas fourni de description pour l'/les étape(s) {missing} — "
+            f"reçu : {sorted(descriptions_by_ordre.keys())}, attendu : "
+            f"{[s['ordre'] for s in steps]}. Réponse brute : {llm_result.descriptions_etapes}"
+        )
+
+    etapes_finales = [
+        {
+            "ordre": step["ordre"],
+            "tactiques": step["tactiques"],
+            "techniques": step["techniques"],
+            "rule_ids": step["rule_ids"],
+            "nb_alertes": step["nb_alertes"],
+            "description": descriptions_by_ordre[step["ordre"]],
+        }
+        for step in steps
+    ]
+
     return {
         "incident_id": incident_id,
-        "rapport": result,
+        "etapes": etapes_finales,
+        "resume_narratif": llm_result.resume_narratif,
+        "limite_couverture": llm_result.limite_couverture,
+        "correlation_info": correlation_info,
         "timeline": df_timeline,
         "latency_seconds": latency,
     }
@@ -245,11 +357,13 @@ if __name__ == "__main__":
         print(f"\nGénération du rapport pour l'incident : {target_incident_id}\n")
         output = generate_kill_chain_report(target_incident_row, df_grouped)
 
-        print(f"Latence : {output['latency_seconds']:.1f}s\n")
-        print("=== Chronologie brute ===")
-        print(output["timeline"][["timestamp", "rule_id", "rule_description", "mitre_tactic"]].to_string(index=False))
-        print("\n=== Rapport structuré ===")
-        for etape in output["rapport"].etapes:
-            print(f"  {etape.ordre}. [{etape.tactique_mitre} — {etape.techniques_mitre}] {etape.description}")
-        print(f"\nRésumé narratif :\n{output['rapport'].resume_narratif}")
-        print(f"\nLimite de couverture : {output['rapport'].limite_couverture}")
+        print(f"Latence (rédaction LLM uniquement) : {output['latency_seconds']:.1f}s\n")
+        print("=== Étapes (segmentation et tags MITRE déterministes) ===")
+        for etape in output["etapes"]:
+            print(f"  Étape {etape['ordre']} — règles {etape['rule_ids']} "
+                  f"({etape['nb_alertes']} alertes)")
+            print(f"    Tactique(s) : {', '.join(etape['tactiques']) or 'N/A'}")
+            print(f"    Technique(s) : {', '.join(etape['techniques']) or 'N/A'}")
+            print(f"    Description  : {etape['description']}")
+        print(f"\nRésumé narratif :\n{output['resume_narratif']}")
+        print(f"\nLimite de couverture : {output['limite_couverture']}")
