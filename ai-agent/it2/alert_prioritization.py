@@ -198,6 +198,23 @@ GROUND_TRUTH_LABELS = {
 LOCAL_EVENT_RULE_IDS = {"2501", "5501", "5502", "5503", "5557"}
 INCIDENT_WINDOW_MINUTES = 10
 
+# Règles Wazuh natives dont la DESCRIPTION OFFICIELLE documente un succès
+# d'attaque confirmé (indépendant de GROUND_TRUTH_LABELS — la source du
+# signal est la documentation native Wazuh, pas notre curation interne,
+# pour éviter toute fuite de vérité terrain vers les features données au
+# LLM). Cf. Issue #21, diagnostic du 04/08/2026 :
+# - 40112 (sshd_rules.xml) : "Multiple authentication failures followed by a success"
+# - 31106 (web_rules.xml)  : "A web attack returned code 200 (success)"
+# Avant ce correctif, contains_attack_success ne détectait le succès que
+# via le groupe custom "attack_success" (règle de corrélation 100051),
+# manquant les cas de succès autonome (sans reconnaissance préalable
+# corrélée dans la fenêtre de 10 min) — 5/6 incidents critiques mal
+# classés "haute" par le LLM lors du premier run complet (F1-macro LLM
+# 0.412 vs score seul 1.000). contains_kill_chain reste inchangé : la
+# règle 100051 porte déjà nativement le groupe "kill_chain" et son
+# absence pour un succès autonome est un comportement attendu, pas un bug.
+NATIVE_SUCCESS_RULE_IDS = {"40112", "31106"}
+
 
 def group_alerts_by_incident(
     df_scope: pd.DataFrame,
@@ -292,7 +309,10 @@ def aggregate_incident_features(df_grouped: pd.DataFrame) -> pd.DataFrame:
             "rule_descriptions": rule_descriptions,
             "rule_level_max": group["rule_level"].max(),
             "rule_groups_union": sorted(rule_groups_union),
-            "contains_attack_success": "attack_success" in rule_groups_union,
+            "contains_attack_success": (
+                "attack_success" in rule_groups_union
+                or bool(NATIVE_SUCCESS_RULE_IDS & set(group["rule_id"].astype(str)))
+            ),
             "contains_kill_chain": "kill_chain" in rule_groups_union,
             "zone": zone,
             "incident_ground_truth": RANK_TO_LABEL[worst_rank],
