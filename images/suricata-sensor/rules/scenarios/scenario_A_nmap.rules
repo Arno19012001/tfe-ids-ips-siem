@@ -11,18 +11,24 @@
 # (correction suite au crash du 2026-07-04 : "Signature missing
 # required value sid" causé par des règles multi-lignes sans
 # continuation "\").
+#
+# NB (Issue #37, 06/08/2026) : les signatures 1000102/1000103
+# (empreinte OS via sondes TCP non-standard T2/T3-T7, -O inclus
+# dans -A) ont été retirées du ruleset actif. Limitation
+# architecturale actée : le suivi d'état stateful de pfSense
+# normalise/bloque ces sondes avant qu'elles n'atteignent le
+# capteur inline, rendant ces signatures structurellement
+# inertes dans cette topologie (choix assumé de ne pas affaiblir
+# pfSense pour les faire passer). Non requises par les critères
+# d'acceptation A1-A4 (portant uniquement sur SID 1000101).
+# Conclusion documentée dans le rapport plutôt qu'un correctif de
+# règle. Plage SID 1000102-1000103 volontairement laissée vacante.
 # ============================================================
 
 # --- Signature 1 : détection de balayage SYN (-sS) ---
 alert tcp $EXTERNAL_NET any -> $DMZ_NET any (msg:"SCENARIO_A Nmap SYN Scan Detected"; flow:stateless; flags:S,12; threshold:type both, track by_src, count 15, seconds 10; classtype:attempted-recon; metadata: scenario A, mitre_tactic TA0007_Discovery, mitre_technique T1046; reference:url,attack.mitre.org/techniques/T1046/; sid:1000101; rev:1;)
 
-# --- Signature 2 : détection d'empreinte OS (-O, inclus dans -A) — sonde T2 (Null flags) ---
-alert tcp $EXTERNAL_NET any -> $DMZ_NET any (msg:"SCENARIO_A Nmap OS Fingerprint Probe - Null Flags (T2)"; flags:0; classtype:attempted-recon; metadata: scenario A, mitre_tactic TA0007_Discovery, mitre_technique T1046; reference:url,attack.mitre.org/techniques/T1046/; sid:1000102; rev:1;)
-
-# --- Signature 2 (suite) : sondes T3/T7 (FIN+PSH+URG) ---
-alert tcp $EXTERNAL_NET any -> $DMZ_NET any (msg:"SCENARIO_A Nmap OS Fingerprint Probe - FIN/PSH/URG (T3-T7)"; flags:FPU; classtype:attempted-recon; metadata: scenario A, mitre_tactic TA0007_Discovery, mitre_technique T1046; reference:url,attack.mitre.org/techniques/T1046/; sid:1000103; rev:1;)
-
-# --- Signature 3 : détection de la détection de service/version (-sV) ---
+# --- Signature 2 : détection de la détection de service/version (-sV) ---
 # Recalibrage Issue #36 (06/08/2026) : seuil initial (count:3, track by_src)
 # ne couvrait que FTP (banter SYST/FEAT) en trafic -sV normal ; HTTP/SSH
 # n'envoient qu'1 seul paquet applicatif par hôte, jamais suffisant pour
