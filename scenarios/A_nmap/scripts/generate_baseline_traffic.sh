@@ -3,7 +3,7 @@
 # Capturé par Suricata au même titre que le trafic du Scénario A (schéma identique),
 # utilisé comme baseline pour l'entraînement de l'Isolation Forest (Issue #15).
 #
-# v2 : diversité de chemins HTTP élargie + durée allongée (45 min au lieu de 25),
+# v2 : diversité de chemins HTTP élargie + durée allongée à 12h (720 min),
 # pour disposer d'un échantillon suffisant pour un split en trois
 # (entraînement / validation du seuil / test), et réduire le risque de faux
 # positifs liés à un profil de normalité appris trop étroit.

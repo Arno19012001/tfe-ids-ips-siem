@@ -27,6 +27,9 @@ venv/
 *.pcapng
 eve.json
 /scenarios/**/results/*.json
+# Exceptions : extraits curés et documentés, pas les dumps eve.json bruts
+!/scenarios/**/results/*_extract.json
+!/scenarios/**/results/suricata_alerts_*.json
 /scenarios/**/results/*.pcap
 
 # Secrets

@@ -127,11 +127,15 @@ tfe-ids-ips-siem/
 
 ## Documents académiques
 
-Le cahier des charges, l'analyse et le schéma d'architecture ont été produits en amont
-de la phase pratique dans le cadre des évaluations EPHEC. Ils ne sont pas versionnés
-dans ce dépôt (documents soumis via le circuit académique dédié) ; le schéma
-d'architecture réseau (`schema_architecture_labo.pdf`) est cependant régénéré à partir
-des sources LaTeX du rapport final une fois celui-ci rédigé (Sprint 6).
+Les documents produits en amont de la phase pratique, dans le cadre des évaluations
+EPHEC, sont disponibles dans `docs/` :
+
+- `cdc_tfe_arno_starkel_final.pdf` — Cahier des charges
+- `analyse_tfe_arno_starkel_final.pdf` — Analyse
+- `schema_architecture_labo.pdf` — Schéma d'architecture réseau
+
+Le schéma d'architecture sera régénéré à partir des sources LaTeX du rapport final une
+fois celui-ci rédigé (Sprint 6).
 
 ---
 
