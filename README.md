@@ -31,7 +31,7 @@ et identifiants fictifs, conformément aux exigences du RGPD.
 | IDS/IPS | Suricata (mode IPS inline NFQueue) |
 | SIEM | Wazuh (Manager + Indexer + Dashboard) |
 | Agent HIDS | Wazuh Agent |
-| Déploiement | Ansible |
+| Déploiement | Ansible *(prévu, non encore implémenté — voir Issue #39)* |
 | LLM local | Ollama + Llama 3.1 8B |
 | Agent IA | LangChain Python |
 | Versioning | GitHub |
@@ -74,23 +74,30 @@ workstation-it
 
 ## Approche itérative
 
-### MVP — Itération 1 (fin juin 2026)
+État d'avancement au 06/08/2026 — suivi détaillé via les [GitHub Issues](https://github.com/Arno19012001/tfe-ids-ips-siem/issues) et [Projects](https://github.com/Arno19012001/tfe-ids-ips-siem) du dépôt (Sprints 1 à 6).
+
+### MVP — Itération 1 (Sprints 1–2) ✅ Terminé
 - Environnement de laboratoire opérationnel
 - Détection du scénario A (balayage réseau)
 - Premier modèle IA : détection d'anomalies (Isolation Forest)
 - Dashboard SIEM minimal
 
-### Itération 2 (juillet S1–S2)
+### Itération 2 (Sprints 3–4) ✅ Terminé
 - Scénarios B et C ajoutés
 - Corrélation des événements, reconstruction partielle de la kill chain
 - Priorisation automatique des alertes par IA
 - Déploiement des agents HIDS
 
-### Itération 3 (juillet S3–S4)
-- Scénario D ajouté
-- Reconstruction automatique complète de la kill chain par IA
-- Dashboard SOC complet
-- Mécanismes d'aide à la réponse à incident
+### Itération 3 (Sprint 5) 🔄 En cours
+- Scénario D ajouté ✅
+- Reconstruction automatique complète de la kill chain par IA — 🔄 en cours (Issue #27)
+- Dashboard SOC complet — 🔄 en cours (Issue #28)
+- Mécanismes d'aide à la réponse à incident — 🔄 en cours (Issue #29)
+
+### Rédaction et dépôt (Sprint 6) ⏳ À venir
+- Rédaction des chapitres du rapport final
+- Relecture et mise en page
+- Dépôt (17 août 2026) et préparation de la défense (septembre 2026)
 
 ---
 
@@ -102,37 +109,41 @@ tfe-ids-ips-siem/
 │   ├── suricata-sensor/     #   Sensor inline NFQueue (Debian 12)
 │   ├── web-eurostar/        #   Serveur web Apache2 + MariaDB (10.0.10.10)
 │   └── ssh-eurostar/        #   Serveur SSH OpenSSH (10.0.10.20)
-├── ansible/                 # Playbooks de déploiement
-├── wazuh/                   # Configuration SIEM
+├── ansible/                 # Inventaire (playbooks à venir, Issue #39)
+├── wazuh/                   # Configuration SIEM (règles, décodeurs, config réseau)
 ├── ai-agent/                # Agent IA LangChain + Ollama (3 itérations)
 ├── scenarios/               # Scripts d'attaque et résultats
 │   ├── A_nmap/
 │   ├── B_hydra/
 │   ├── C_sqlmap/
 │   └── D_metasploit/
+├── results/                 # Bilans d'itération, analyses IA (Isolation Forest, LLM)
 ├── gns3/                    # Topologie réseau GNS3
-├── docs/                    # Documents académiques (CDC, analyse, schéma)
-└── report/                  # Sources LaTeX du rapport final
+├── docs/                    # Runbooks et documentation de dépannage
+└── report/                  # Sources LaTeX du rapport final (à venir, Sprint 6)
 ```
 
 ---
 
 ## Documents académiques
 
-Les documents produits en amont de la phase pratique sont disponibles dans `docs/` :
-
-- `cdc.pdf` — Cahier des charges (15 pages)
-- `analyse_tfe_arno_starkel_final.pdf` — Analyse (32 pages)
-- `schema_architecture_labo.pdf` — Schéma d'architecture réseau
+Le cahier des charges, l'analyse et le schéma d'architecture ont été produits en amont
+de la phase pratique dans le cadre des évaluations EPHEC. Ils ne sont pas versionnés
+dans ce dépôt (documents soumis via le circuit académique dédié) ; le schéma
+d'architecture réseau (`schema_architecture_labo.pdf`) est cependant régénéré à partir
+des sources LaTeX du rapport final une fois celui-ci rédigé (Sprint 6).
 
 ---
 
 ## Lancer l'environnement
 
-> La procédure complète de déploiement sera documentée ici à l'issue du MVP.
+> L'automatisation complète du déploiement (Ansible) est prévue mais pas encore
+> implémentée — voir [Issue #39](https://github.com/Arno19012001/tfe-ids-ips-siem/issues/39).
+> À ce stade, le déploiement se fait manuellement via l'import de la topologie GNS3
+> (`gns3/tfe-ids-ips-siem.gns3`) et le build des images Docker sous `images/`.
 
 ```bash
-# Déploiement via Ansible (à venir)
+# Déploiement automatisé via Ansible (à venir — Issue #39)
 ansible-playbook -i ansible/inventory/hosts.ini ansible/playbooks/deploy_suricata.yml
 ansible-playbook -i ansible/inventory/hosts.ini ansible/playbooks/deploy_wazuh.yml
 ansible-playbook -i ansible/inventory/hosts.ini ansible/playbooks/deploy_ai_agent.yml
