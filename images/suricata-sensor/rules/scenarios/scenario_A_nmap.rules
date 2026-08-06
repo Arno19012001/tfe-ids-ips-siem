@@ -23,4 +23,22 @@ alert tcp $EXTERNAL_NET any -> $DMZ_NET any (msg:"SCENARIO_A Nmap OS Fingerprint
 alert tcp $EXTERNAL_NET any -> $DMZ_NET any (msg:"SCENARIO_A Nmap OS Fingerprint Probe - FIN/PSH/URG (T3-T7)"; flags:FPU; classtype:attempted-recon; metadata: scenario A, mitre_tactic TA0007_Discovery, mitre_technique T1046; reference:url,attack.mitre.org/techniques/T1046/; sid:1000103; rev:1;)
 
 # --- Signature 3 : détection de la détection de service/version (-sV) ---
-alert tcp $EXTERNAL_NET any -> $DMZ_NET any (msg:"SCENARIO_A Nmap Service/Version Detection Probe"; flow:to_server,established; threshold:type both, track by_src, count 3, seconds 10; classtype:attempted-recon; metadata: scenario A, mitre_tactic TA0007_Discovery, mitre_technique T1046; reference:url,attack.mitre.org/techniques/T1046/; sid:1000104; rev:1;)
+# Recalibrage Issue #36 (06/08/2026) : seuil initial (count:3, track by_src)
+# ne couvrait que FTP (banter SYST/FEAT) en trafic -sV normal ; HTTP/SSH
+# n'envoient qu'1 seul paquet applicatif par hôte, jamais suffisant pour
+# atteindre count:3 ni count:2 (testés empiriquement, tous deux insuffisants).
+# De plus, track by_src agrégeait les 3 hôtes DMZ sous un seul compteur par
+# source, masquant les hôtes secondaires dès la 1re alerte déclenchée.
+# Passage à count:1 + track by_both (compteur par paire source/destination) :
+# validé empiriquement sur les 3 hôtes DMZ (FTP/SSH/HTTP, 1 hit chacun,
+# test isolé du 06/08/2026, 15:28:14-15:32:51 UTC).
+# Compromis mesuré et documenté dans le rapport (chapitre réalisation
+# pratique) : 2 faux positifs constatés sur un échantillon de trafic
+# légitime (3 requêtes HTTP + 1 tentative SSH, même test du 06/08/2026,
+# 15:35:14-15:35:50 UTC), accepté comme limitation assumée. Une piste de
+# correction par corrélation Wazuh (spécificité multi-hôtes) a été
+# envisagée puis écartée : hors périmètre des critères d'acceptation
+# A1-A4 (qui portent sur SID 1000101 uniquement) et contraire à BNF-07
+# (maintenabilité, complexité excessive) pour un scénario noté complexité
+# la plus faible (⋆) du cahier des charges.
+alert tcp $EXTERNAL_NET any -> $DMZ_NET any (msg:"SCENARIO_A Nmap Service/Version Detection Probe"; flow:to_server,established; threshold:type both, track by_both, count 1, seconds 10; classtype:attempted-recon; metadata: scenario A, mitre_tactic TA0007_Discovery, mitre_technique T1046; reference:url,attack.mitre.org/techniques/T1046/; sid:1000104; rev:4;)
