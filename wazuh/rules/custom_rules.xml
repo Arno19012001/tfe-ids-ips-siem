@@ -69,3 +69,53 @@
 </rule>
 
 </group>
+
+<!-- ============================================================
+     SCENARIO D - Backdoor VSFTPD 2.3.4 (CVE-2011-2523)
+     Plage d'ID reservee : 100050-100099
+
+     Contrairement aux scenarios A/B (correlation inter-agents entre
+     suricata-sensor et ssh-eurostar, necessitant global_frequency),
+     les deux alertes du scenario D proviennent du meme agent
+     (suricata-sensor) et du meme flux TCP.
+
+     Point verifie empiriquement le 06/08/2026 : le champ data.srcip
+     s'inverse entre les deux alertes (192.168.1.50 pour 1000401,
+     to_server ; 10.0.10.30 pour 1000402, to_client - reponse du
+     serveur suite au crash de separation de privileges). same_source_ip
+     echouerait donc de maniere symetrique au probleme deja documente
+     pour le Scenario B. Utilisation de data.flow_id a la place,
+     confirme identique dans les deux echantillons ("410539919843684").
+
+     Note additionnelle : ce meme flow_id a ete observe partage avec
+     des alertes SID 1000104 (Scenario A, Nmap Service/Version
+     Detection Probe) generees pendant l'exploitation elle-meme - la
+     regle 1000104 (threshold sur connexion etablie, sans specificite
+     Nmap) se declenche sur tout trafic FTP suffisant en volume, pas
+     uniquement sur du trafic Nmap. Sans consequence sur la correlation
+     ci-dessous (if_matched_sid filtre deja sur la regle 100052, donc
+     sur signature_id=1000401 specifiquement), mais rejoint le constat
+     de l'issue #36 (seuil 1000104 a recalibrer).
+     ============================================================ -->
+<group name="scenario_d,correlation,">
+<rule id="100052" level="10">
+  <if_sid>86601</if_sid>
+  <field name="alert.signature_id">^1000401$</field>
+  <description>Suricata: Scenario D - Backdoor VSFTPD 2.3.4 declenchee (CVE-2011-2523) - isolee pour correlation</description>
+  <mitre>
+    <id>T1190</id>
+  </mitre>
+  <group>scenario_d,initial_access,</group>
+</rule>
+<rule id="100053" level="15" frequency="2" timeframe="300">
+  <if_sid>86601</if_sid>
+  <if_matched_sid>100052</if_matched_sid>
+  <same_field>flow_id</same_field>
+  <field name="alert.signature_id">^1000402$</field>
+  <description>Kill chain: acces initial confirme - backdoor VSFTPD declenchee et crash de separation de privileges observe (Scenario D)</description>
+  <mitre>
+    <id>T1190</id>
+  </mitre>
+  <group>attack_success,scenario_d,initial_access,</group>
+</rule>
+</group>
