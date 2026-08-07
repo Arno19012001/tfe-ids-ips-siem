@@ -1,3 +1,17 @@
+# ============================================================
+# Scenario D -- Exploitation VSFTPD 2.3.4 backdoor (CVE-2011-2523)
+# Kill chain : TA0001/T1190 (Exploit Public-Facing Application)
+# Plage SID reservee : 1000400-1000499
+#
+# 1000401 : declenche sur le trigger du backdoor (smiley dans USER).
+# 1000402 : effet de bord du crash de separation de privileges qui
+# suit -- pas un comportement voulu de l'attaquant, mais un signal de
+# corroboration fiable (cf. correlation Wazuh 100052/100053).
+#
+# ftp.command/ftp.command_data indisponibles en Suricata 7.0.10
+# (introduits en 8.0) -- content generique sur le flux TCP reconstruit.
+# ============================================================
+
 alert ftp $EXTERNAL_NET any -> $DMZ_NET 21 (msg:"SCENARIO_D VSFTPD 2.3.4 Backdoor Trigger - Smiley in Username (CVE-2011-2523)"; flow:to_server,established; content:"USER"; nocase; content:":)"; distance:0; within:30; classtype:trojan-activity; metadata: scenario D, mitre_tactic TA0001_InitialAccess, mitre_technique T1190; reference:url,attack.mitre.org/techniques/T1190/; reference:cve,2011-2523; sid:1000401; rev:1;)
 
 alert ftp $DMZ_NET 21 -> $EXTERNAL_NET any (msg:"SCENARIO_D VSFTPD Privilege Separation Crash - Backdoor Trigger Side-Effect"; flow:to_client,established; content:"500 OOPS: priv_sock_get_result"; classtype:trojan-activity; metadata: scenario D, mitre_tactic TA0001_InitialAccess, mitre_technique T1190; reference:url,attack.mitre.org/techniques/T1190/; reference:cve,2011-2523; sid:1000402; rev:1;)
