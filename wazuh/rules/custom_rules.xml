@@ -68,6 +68,16 @@
   <group>attack_success,scenario_a,scenario_b,kill_chain,</group>
 </rule>
 
+<rule id="100054" level="7">
+  <if_sid>86601</if_sid>
+  <field name="alert.signature_id">^1000201$</field>
+  <description>Suricata: Scenario B - Rafale SSH volumetrique detectee (isolee pour blocage anticipe, avant succes Hydra)</description>
+  <mitre>
+    <id>T1110.001</id>
+  </mitre>
+  <group>scenario_b,</group>
+</rule>
+
 </group>
 
 <!-- ============================================================
