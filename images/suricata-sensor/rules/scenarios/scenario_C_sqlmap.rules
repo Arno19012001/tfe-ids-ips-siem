@@ -1,53 +1,23 @@
 # ============================================================
-# Scénario C — Injection SQL (sqlmap)
-# TFE Eurostar — Kill chain : TA0001/T1190 (Exploit Public-Facing
-#                              Application), TA0009/T1213 (Data from
-#                              Information Repositories)
-# Commande de référence : sqlmap -u "http://10.0.10.10/index.php?id=1"
-#                          --batch --dbs (cf. scenarios/C_sqlmap/attack.sh)
-# Plage SID réservée : 1000300-1000399
-# Mode : alert-only (validation IDS, aucun blocage à ce stade)
-# Cible : $DMZ_NET (10.0.10.0/24), port $HTTP_PORTS (80)
+# Scenario C -- Injection SQL (sqlmap)
+# Kill chain : TA0001/T1190 (Exploit Public-Facing Application),
+#              TA0009/T1213 (Data from Information Repositories)
+# Plage SID reservee : 1000300-1000399
 #
-# NB : contrairement au Scénario B (SSH chiffré), le trafic HTTP est
-# en clair — visibilité complète sur URI, headers et payloads.
-# Détection combinant signature (payloads SQLi classiques, User-Agent
-# sqlmap par défaut) et comportement (volume de requêtes sur le
-# paramètre injectable).
+# HTTP en clair (contrairement a B/SSH chiffre) : visibilite complete
+# sur URI/headers/payloads. Detection combinant signature (patterns
+# SQLi, User-Agent sqlmap) et comportement (volume sur parametre
+# injectable).
 #
-# NB (rev suite fusion 1000303/1000305 initiales) : les tests
-# boolean-based et error-based (quote seule) de sqlmap se recouvrent
-# presque systématiquement (une quote isolée déclenche généralement
-# aussi le test OR/AND numérique dans la même campagne). Fusionnées
-# en une seule signature 1000303 pour éviter le double comptage lors
-# du calcul du taux de FN/FP.
+# 1000303 : fusion des tests boolean-based et error-based (quote
+# seule) -- se recouvrent presque systematiquement dans une campagne
+# sqlmap reelle, evite le double comptage FN/FP.
 #
-# --- Calibrage et validation empirique (test du 16/07/2026, run réel
-# de attack.sh contre web-eurostar, cf. Issue #19) ---
-# 88 requêtes HTTP réelles observées côté access.log (87 détectées par
-# 1000301, écart de 1 dû à une requête hors périmètre "id=").
-# Distribution temporelle : burst initial de 52 requêtes en < 1s puis
-# 18 requêtes la seconde suivante (phase --level=2), suffisant pour
-# déclencher 1000305 (count 20, seconds 10) dès le début de la
-# campagne — seuil validé tel quel, pas de recalibrage nécessaire
-# (comportement "un signal par campagne" voulu, à la différence du
-# seuil du Scénario B qui doit capturer chaque rafale individuellement).
-# Analyse des payloads réels a révélé une famille de techniques
-# error-based non couverte (fonctions MySQL avec encodage hexadécimal,
-# sans quote ni AND/OR littéral : EXTRACTVALUE, UPDATEXML, GTID_SUBSET,
-# JSON_KEYS, EXP) -> ajout de la signature 1000306.
-#
-# LIMITES CONNUES (documentées dans le rapport, taux de FN) :
-# - Règle 1000301 contournable via --random-agent (non utilisé dans
-#   l'attack.sh actuel).
-# - Règles 1000302-1000304 et 1000306 ancrées sur "id=" : spécifiques
-#   au paramètre réel de ce lab, non génériques à toute application.
-# - FN résiduel assumé (non corrigé) : technique error-based par
-#   GROUP BY ... HAVING MIN(0) (clé dupliquée) et payloads de fuzzing
-#   de délimiteurs (ex. id=1.).'.,)".,, ) — familles de techniques
-#   supplémentaires, non couvertes par choix (rendement décroissant
-#   d'une approche uniquement par signature ; argument en faveur de
-#   la complémentarité avec l'approche comportementale et l'agent IA).
+# LIMITES CONNUES : 1000301 contournable via --random-agent (non
+# utilise par attack.sh) ; 1000302-1000304/1000306 ancrees sur "id="
+# (specifique a ce lab) ; FN residuel assume sur GROUP BY...HAVING
+# MIN(0) et payloads de fuzzing de delimiteurs -- argument en faveur
+# de la complementarite avec l'approche comportementale/IA.
 # ============================================================
 
 alert http $EXTERNAL_NET any -> $DMZ_NET $HTTP_PORTS (msg:"SCENARIO_C SQLMAP User-Agent Detected"; flow:to_server,established; http.user_agent; content:"sqlmap"; nocase; classtype:web-application-attack; metadata: scenario C, mitre_tactic TA0001_InitialAccess, mitre_technique T1190; reference:url,attack.mitre.org/techniques/T1190/; sid:1000301; rev:1;)
