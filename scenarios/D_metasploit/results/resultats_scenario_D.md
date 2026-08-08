@@ -29,29 +29,47 @@ Note technique : `ftp.command`/`ftp.command_data` indisponibles en Suricata 7.0.
 
 **Point technique notable** : `same_source_ip` échouerait ici de manière symétrique au problème déjà rencontré sur le Scénario B — le champ `data.srcip` s'inverse entre les deux alertes (192.168.1.50 pour 1000401, `to_server` ; 10.0.10.30 pour 1000402, `to_client`, réponse du serveur suite au crash). `same_field flow_id` contourne le problème, confirmé identique dans les deux échantillons.
 
-## Détection Wazuh applicative — non retenue, cause documentée
+## D2 — Création d'utilisateur root détectée (piste syslog, validée le 08/08/2026)
 
-Piste initialement envisagée : forwarding syslog de `vsftpd.log` vers Wazuh. **Écartée après test empirique** : le crash du processus privilégié survient *avant* que vsftpd n'atteigne le code d'écriture de la ligne de log applicative (confirmé par un marqueur dédié `testclock:)`, absent de `/var/log/vsftpd.log` malgré `xferlog_enable=YES`). Structurellement incapable de capturer cet événement, indépendamment de la configuration.
+**Objectif** : détecter la création d'un compte de persistance (T1136.001) sur `metasploitable2` après compromission, sans agent Wazuh HIDS (incompatible : noyau 2.6.24 / glibc obsolète).
+
+**Architecture retenue** : forwarding syslog réseau classique (`sysklogd`, `/etc/syslog.conf : *.* @10.0.30.10`) vers un listener syslog dédié sur le manager Wazuh (`<remote><connection>syslog</connection><port>514</port><protocol>udp</protocol>`, `allowed-ips 10.0.10.30/32`). Règle pfSense DMZ→MGMT UDP/514 ajoutée.
+
+**Difficulté résolue** : le forward réseau de ce `sysklogd` ancien omet le timestamp ET le hostname RFC 3164 (présents dans `/var/log/auth.log` local, absents du paquet UDP — confirmé par capture `tcpdump`). Les décodeurs natifs Wazuh (dont la règle 5902) échouent donc sur ce format tronqué (`No decoder matched`). Un décodeur custom dédié a été écrit (`wazuh/decoders/custom_decoders.xml`, décodeur `metasploitable-useradd`) : le `<prematch>` utilise la syntaxe OSMatch (sregex, qui ne supporte ni `\d` ni les crochets échappés — piège identifié via la documentation Wazuh), l'extraction fine des champs est déléguée au `<regex>` enfant OSRegex.
+
+**Validation empirique** (08/08/2026) :
+- `wazuh-logtest` : décodeur `metasploitable-useradd` matché, extraction `dstuser`/`uid`/`gid` correcte, règle 100055 (niveau 10, T1136.001) déclenchée
+- Conditions réelles : `useradd -m -s /bin/bash finaltest2` sur metasploitable2 → alerte 100055 dans le dashboard, `data.dstuser: finaltest2`, `data.uid/gid: 1009`, `rule.mitre.id: T1136.001`, `rule.mitre.tactic: Persistence`
+
+**Note d'implémentation** : le redémarrage de `wazuh-manager` est nécessaire après modification du décodeur — `wazuh-logtest` relit les fichiers à chaque appel, mais le pipeline temps réel charge le ruleset en mémoire au démarrage uniquement.
+
+**Rattachement de l'alerte** : les événements syslog externes sont rattachés à l'agent manager (`agent.id 000`, `agent.name wazuh-server`), pas à un agent dédié à metasploitable2 — comportement attendu du listener syslog, pas un défaut.
+
+## Détection Wazuh applicative FTP — non retenue, cause documentée
+
+Piste initialement envisagée : forwarding syslog de `vsftpd.log`. **Écartée après test empirique** : le crash du processus privilégié survient *avant* que vsftpd n'atteigne le code d'écriture de la ligne de log applicative (marqueur dédié `testclock:)` absent de `/var/log/vsftpd.log` malgré `xferlog_enable=YES`). Structurellement incapable de capturer l'événement de trigger FTP lui-même. (Distinct de D2 ci-dessus, qui détecte la création d'utilisateur *post-compromission*, pas le trigger FTP.)
 
 ## Faux positif croisé inter-scénarios (déjà documenté, Issue #25)
 
-La règle **1000104** (Scénario A, Service/Version Detection) se déclenche à tort sur la commande `PASS` envoyée lors du trigger du backdoor D — même famille de chevauchement que celui découvert le 07/08/2026 entre le Scénario A (OS detection) et la règle 1000201/100054 du Scénario B. Sans conséquence sur la corrélation 100052/100053 (`if_matched_sid` filtre déjà sur `signature_id=1000401` spécifiquement), mais confirme un motif récurrent : **les scénarios ne doivent pas être testés en parallèle** sans vérifier les chevauchements de signatures comportementales.
+La règle **1000104** (Scénario A, Service/Version Detection) se déclenche à tort sur la commande `PASS` envoyée lors du trigger du backdoor D — même famille de chevauchement que celui découvert le 07/08/2026 entre le Scénario A (OS detection) et la règle 1000201/100054 du Scénario B. Sans conséquence sur la corrélation 100052/100053 (`if_matched_sid` filtre déjà sur `signature_id=1000401` spécifiquement).
 
 ## Synthèse des critères d'acceptation
 
 | Critère | Statut | Preuve / raison |
 |---|---|---|
 | D1 (exploitation vsftpd détectée, Suricata) | ✅ | SID 1000401/1000402, 2 cycles complets confirmés dans `eve.json` |
-| D2 (création user root, HIDS) | ❌ **non satisfait** | Aucun agent Wazuh déployé sur `metasploitable2` (noyau 2.6.24 / glibc obsolète, jugé hors budget) — et le script `attack.rc` actuel obtient un accès root direct via le backdoor, sans étape explicite de création d'utilisateur à détecter |
-| D3 (service systemd suspect, HIDS FIM) | ❌ **non satisfait** | Même cause que D2 — pas d'agent HIDS sur la cible pour un FIM |
-| D4 (kill chain 3 étapes, alerte composite) | ⚠️ **2 étapes, pas 3** | Règle 100053 (niveau 15) corrèle 2 alertes (1000401→1000402) — pas 3 étapes MITRE distinctes comme formulé dans le critère |
+| D2 (création user root, HIDS) | ✅ | Règle custom 100055 via forward syslog + décodeur dédié — validé en conditions réelles (08/08/2026) |
+| D3 (service systemd suspect, HIDS FIM) | ❌ **structurellement inapplicable** | metasploitable2 = Ubuntu 8.04 (2008), **antérieur à systemd** (adopté ~2015). Aucun service systemd n'existe sur la cible, quel que soit l'agent déployé — décalage entre l'énoncé générique du critère et la cible historique choisie pour ce scénario |
+| D4 (kill chain 3 étapes, alerte composite) | ⚠️ **2 étapes corrélées** | Règle 100053 (niveau 15) corrèle 2 alertes Suricata (1000401→1000402), pas 3 étapes MITRE distinctes au sens strict |
 
 ## Limites connues (assumées, à reprendre dans le rapport)
 
-- **D2/D3 non satisfaits** : limitation architecturale documentée, pas un oubli — `metasploitable2` (noyau 2.6.24, glibc obsolète) est structurellement incompatible avec un agent Wazuh moderne ; le déploiement n'a pas été tenté (hors budget de l'issue). Une piste alternative (forwarding syslog) a été explorée et écartée pour raison technique documentée ci-dessus.
-- **D4 partiel** : la corrélation actuelle relie 2 alertes Suricata (même agent), pas 3 étapes MITRE distinctes au sens strict du critère du document d'analyse — argument à nuancer dans le rapport (kill chain réelle du CVE : trigger → crash → accès root, dont seules les 2 premières étapes réseau sont observables sans HIDS).
-- Faux positif croisé avec SID 1000104 (Scénario A) — non bloquant mais documenté, cf. section dédiée.
+- **D3 inapplicable par nature** : Ubuntu 8.04 précède systemd — ce n'est pas un manque d'effort mais une incompatibilité entre le critère (générique) et la cible historique. À reformuler ou marquer explicitement N/A dans le rapport.
+- **D4 partiel** : la corrélation relie 2 alertes Suricata (même agent), pas 3 étapes MITRE distinctes. La kill chain réelle du CVE (trigger → crash → accès root) n'a que ses 2 premières étapes réseau observables sans HIDS sur la cible.
+- **Décodeur `metasploitable-useradd` volontairement large** : `<prematch>useradd</prematch>` matche tout message syslog contenant "useradd" depuis n'importe quelle source. Acceptable dans ce lab (metasploitable2 est la seule source syslog externe), mais à restreindre en production.
+- Faux positif croisé avec SID 1000104 (Scénario A) — non bloquant, documenté.
 
 ## Références
 - CVE-2011-2523
-- MITRE ATT&CK — T1190 (Exploit Public-Facing Application, Initial Access)
+- MITRE ATT&CK — T1190 (Exploit Public-Facing Application), T1136.001 (Create Account: Local Account)
+- Wazuh Documentation — Regular Expression Syntax (OSMatch/OSRegex/PCRE2), Sibling Decoders
