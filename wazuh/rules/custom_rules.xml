@@ -129,3 +129,19 @@
   <group>attack_success,scenario_d,initial_access,</group>
 </rule>
 </group>
+
+<!-- ============================================================
+     Regle custom - Scenario D, piste D2 (creation user root)
+     TFE Eurostar - cf. wazuh/decoders/custom_decoders.xml pour le
+     contexte complet (forward syslog sans hostname, metasploitable2).
+     ============================================================ -->
+<group name="scenario_d,persistence,">
+<rule id="100055" level="10">
+  <decoded_as>metasploitable-useradd</decoded_as>
+  <description>Metasploitable2: nouvel utilisateur systeme cree via useradd (forward syslog, format tronque sans hostname) - $(dstuser)</description>
+  <mitre>
+    <id>T1136.001</id>
+  </mitre>
+  <group>scenario_d,persistence,</group>
+</rule>
+</group>
