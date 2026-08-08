@@ -39,3 +39,30 @@
   <regex>"src_ip":"(\d+.\d+.\d+.\d+)"</regex>
   <order>srcip</order>
 </decoder>
+
+<!-- ============================================================
+     Decodeur custom - Scenario D, piste D2 (creation user root)
+     TFE Eurostar
+
+     Contexte : metasploitable2 ne peut pas heberger d'agent Wazuh
+     moderne (noyau 2.6.24/glibc obsolete). Forwarding syslog reseau
+     classique (sysklogd, /etc/syslog.conf) retenu a la place. Verifie
+     empiriquement le 08/08/2026 : le forward reseau de ce sysklogd
+     ancien omet le timestamp ET le hostname RFC 3164 (presents dans
+     le fichier local /var/log/auth.log, absents du paquet UDP capture
+     via tcpdump). Les decodeurs natifs Wazuh (dont la regle 5902 "New
+     user added to the system") echouent donc systematiquement sur ce
+     format tronque - confirme via wazuh-logtest ("No decoder
+     matched"). Decodeur dedie ci-dessous, matchant directement sur le
+     message sans dependre du hostname.
+     ============================================================ -->
+
+<decoder name="metasploitable-useradd">
+  <prematch>^useradd\[\d+\]: new user:</prematch>
+</decoder>
+
+<decoder name="metasploitable-useradd">
+  <parent>metasploitable-useradd</parent>
+  <regex>name=(\S+), UID=(\d+), GID=(\d+)</regex>
+  <order>dstuser, uid, gid</order>
+</decoder>
