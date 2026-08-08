@@ -58,7 +58,7 @@
      ============================================================ -->
 
 <decoder name="metasploitable-useradd">
-  <prematch>^useradd.*new user:</prematch>
+  <prematch>useradd.*new user:</prematch>
 </decoder>
 
 <decoder name="metasploitable-useradd">
