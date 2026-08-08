@@ -58,11 +58,11 @@
      ============================================================ -->
 
 <decoder name="metasploitable-useradd">
-  <prematch>&lt;\d+&gt;useradd.*new user:</prematch>
+  <prematch>useradd</prematch>
 </decoder>
 
 <decoder name="metasploitable-useradd">
   <parent>metasploitable-useradd</parent>
-  <regex>name=([^,]+), UID=(\d+), GID=(\d+)</regex>
+  <regex>new user: name=(\.+), UID=(\d+), GID=(\d+)</regex>
   <order>dstuser, uid, gid</order>
 </decoder>
