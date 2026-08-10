@@ -22,19 +22,27 @@ RUN curl -fsSL https://ollama.com/install.sh | sh
 COPY requirements.txt /opt/ai-agent/requirements.txt
 RUN pip install --break-system-packages --no-cache-dir -r /opt/ai-agent/requirements.txt
 
-# --- Téléchargement du modèle Llama 3.1 8B AU BUILD, pas à l'exécution ---
+# --- Téléchargement des modèles AU BUILD, pas à l'exécution ---
 # Le lab est isolé et non exposé à Internet une fois déployé (cf.
 # analyse_tfe_arno_starkel_final.tex, section "Considération de sécurité — Docker").
 # Seule la machine hôte dispose d'un accès Internet au moment du build.
-# Empreinte mesurée empiriquement le 03/08/2026 sur l'hôte : ~4,2-4,5 Gio en RAM
-# une fois chargé, ~4,9 Go sur disque (quantification Q4 par défaut d'Ollama),
-# ~12s de latence CPU-only pour un prompt trivial.
+# Llama 3.1 8B — empreinte mesurée empiriquement le 03/08/2026 sur l'hôte :
+# ~4,2-4,5 Gio en RAM une fois chargé, ~4,9 Go sur disque (quantification Q4
+# par défaut d'Ollama), ~12s de latence CPU-only pour un prompt trivial.
+# Qwen3 8B — ajouté le 10/08/2026 pour l'approche agentic tool-calling
+# (ai-agent/agentic_ai/, adaptée de octopus237/Agentic-AI), en complément de
+# Llama 3.1 8B qui reste utilisé par le pattern déterministe existant
+# (it2/, it3/killchain_reconstruction.py). Les deux modèles cohabitent sur
+# disque (~10 Go, sans impact vu les 512 Go de SSD hôte) ; Ollama ne charge
+# qu'un modèle à la fois en RAM (OLLAMA_MAX_LOADED_MODELS=0 = auto), reste à
+# valider empiriquement une fois le conteneur limité à son budget RAM cible.
 RUN (ollama serve &) && \
     for i in $(seq 1 30); do \
         curl -sf http://127.0.0.1:11434/ >/dev/null 2>&1 && break; \
         sleep 1; \
     done && \
     ollama pull llama3.1:8b && \
+    ollama pull qwen3:8b && \
     pkill -f "ollama serve" || true
 
 # --- Persistance des poids du modèle au-delà d'un stop/start ou d'une recréation
@@ -46,9 +54,12 @@ RUN (ollama serve &) && \
 VOLUME ["/root/.ollama"]
 
 # --- Code de l'agent IA ---
-COPY main.py /opt/ai-agent/main.py
+# main.py retiré (fichier absent du repo depuis l'introduction de it2/it3 —
+# COPY sur un chemin inexistant aurait fait échouer le build).
 COPY mvp/ /opt/ai-agent/mvp/
 COPY it2/ /opt/ai-agent/it2/
+COPY it3/ /opt/ai-agent/it3/
+COPY agentic_ai/ /opt/ai-agent/agentic_ai/
 
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh

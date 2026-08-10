@@ -24,7 +24,9 @@ echo "[entrypoint] Modèle(s) disponible(s) :"
 ollama list
 
 echo "[entrypoint] Agent IA prêt. Code source : /opt/ai-agent/"
-echo "[entrypoint] Ex. : python3 /opt/ai-agent/it2/alert_prioritization.py"
+echo "[entrypoint] Ex. (déterministe) : python3 /opt/ai-agent/it2/alert_prioritization.py"
+echo "[entrypoint] Ex. (kill chain)   : python3 /opt/ai-agent/it3/killchain_reconstruction.py --hours 6"
+echo "[entrypoint] Ex. (agentic AI)   : python3 /opt/ai-agent/agentic_ai/app.py start"
 
 # Shell interactif (processus principal — garde le conteneur actif, cohérent
 # avec le pattern déjà utilisé sur suricata-sensor)
