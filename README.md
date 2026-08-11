@@ -13,8 +13,8 @@
 
 Ce dépôt contient l'ensemble des fichiers techniques produits dans le cadre du Travail
 de Fin d'Études portant sur le déploiement d'une solution IDS/IPS et SIEM en
-environnement de laboratoire virtualisé, avec intégration d'un composant d'intelligence
-artificielle comme différenciateur central.
+environnement de laboratoire virtualisé, avec un agent IA autonome d'investigation
+comme différenciateur central — voir [`ai-agent/agentic_ai/`](ai-agent/agentic_ai/README.md).
 
 L'environnement est entièrement composé d'outils libres et open source. Aucune donnée
 réelle n'est utilisée : tous les scénarios s'appuient sur des adresses IP, noms d'hôtes
@@ -32,12 +32,13 @@ et identifiants fictifs, conformément aux exigences du RGPD.
 | SIEM | Wazuh (Manager + Indexer + Dashboard) |
 | Agent HIDS | Wazuh Agent |
 | Déploiement | Ansible *(prévu, non encore implémenté — voir Issue #39)* |
-| LLM local | Ollama + Llama 3.1 8B |
-| Agent IA | LangChain Python |
+| LLM local | Ollama — Llama 3.1 8B (pipelines déterministes) et Qwen3 8B (agent agentique) |
+| Agent IA | LangChain + tool-calling (investigation autonome), Flask (interface web) |
 | Versioning | GitHub |
 | Rédaction | LaTeX / Overleaf |
 
 **Machine hôte :** Ubuntu 24.04 LTS — Intel Core i5-12450H — 16 Go RAM — 512 Go SSD
+(inférence CPU-only, pas de GPU dédié)
 
 ---
 
@@ -74,7 +75,7 @@ workstation-it
 
 ## Approche itérative
 
-État d'avancement au 06/08/2026 — suivi détaillé via les [GitHub Issues](https://github.com/Arno19012001/tfe-ids-ips-siem/issues) et [Projects](https://github.com/Arno19012001/tfe-ids-ips-siem) du dépôt (Sprints 1 à 6).
+État d'avancement au 11/08/2026 — suivi détaillé via les [GitHub Issues](https://github.com/Arno19012001/tfe-ids-ips-siem/issues) et [Projects](https://github.com/Arno19012001/tfe-ids-ips-siem) du dépôt (Sprints 1 à 6).
 
 ### MVP — Itération 1 (Sprints 1–2) ✅ Terminé
 - Environnement de laboratoire opérationnel
@@ -82,17 +83,37 @@ workstation-it
 - Premier modèle IA : détection d'anomalies (Isolation Forest)
 - Dashboard SIEM minimal
 
+Détail : [`ai-agent/mvp/README.md`](ai-agent/mvp/README.md)
+
 ### Itération 2 (Sprints 3–4) ✅ Terminé
 - Scénarios B et C ajoutés
 - Corrélation des événements, reconstruction partielle de la kill chain
 - Priorisation automatique des alertes par IA
 - Déploiement des agents HIDS
 
+Détail : [`ai-agent/it2/README.md`](ai-agent/it2/README.md)
+
 ### Itération 3 (Sprint 5) 🔄 En cours
 - Scénario D ajouté ✅
-- Reconstruction automatique complète de la kill chain par IA — 🔄 en cours (Issue #27)
-- Dashboard SOC complet — 🔄 en cours (Issue #28)
-- Mécanismes d'aide à la réponse à incident — 🔄 en cours (Issue #29)
+- Reconstruction automatique complète de la kill chain, architecture déterministe — ✅ validée empiriquement sur les 4 scénarios (Issue #27, fermée)
+- Dashboard SOC complet — 🔄 en cours (Issue #28) : partiellement couvert par l'interface de l'agent agentique (Itération 4), un dashboard Wazuh dédié selon les critères du client reste à construire
+- Sert de base de comparaison validée à l'agent agentique de l'Itération 4
+
+Détail : [`ai-agent/it3/README.md`](ai-agent/it3/README.md)
+
+### Itération 4 — Agent IA agentique (Sprint 5) 🔄 En cours — **livrable central du TFE**
+- Agent d'investigation autonome par tool-calling : le LLM (Qwen3 8B) choisit
+  lui-même ses appels d'outils pour mener une investigation SOC sur les
+  alertes Wazuh, plutôt que de suivre un pipeline figé à l'avance
+- 9 outils exposés (recherche, agrégation, chronologie, inventaire hôte,
+  corrélation inter-agents, vulnérabilités...)
+- Interface web (Flask, streaming en direct, historique des investigations)
+- Couvre les mécanismes d'aide à la réponse à incident — ✅ validé
+  empiriquement sur 6 tests (4 scénarios + 2 retests, Issue #29, fermée) et
+  une partie du besoin de dashboard SOC (Issue #28)
+- Validation empirique partielle à ce stade
+
+Détail : [`ai-agent/agentic_ai/README.md`](ai-agent/agentic_ai/README.md)
 
 ### Rédaction et dépôt (Sprint 6) ⏳ À venir
 - Rédaction des chapitres du rapport final
@@ -105,34 +126,36 @@ workstation-it
 
 ```
 tfe-ids-ips-siem/
-├── images/                  # Images Docker du laboratoire
-│   ├── suricata-sensor/     #   Sensor inline NFQueue (Debian 12)
-│   ├── web-eurostar/        #   Serveur web Apache2 + MariaDB (10.0.10.10)
-│   └── ssh-eurostar/        #   Serveur SSH OpenSSH (10.0.10.20)
-├── ansible/                 # Inventaire (playbooks à venir, Issue #39)
+├── ai-agent/                # Agent IA — 4 itérations, voir ai-agent/README.md
+│   ├── mvp/                 #   Itération 1 : détection d'anomalies (Isolation Forest)
+│   ├── it2/                 #   Itération 2 : priorisation + corrélation + kill chain textuelle
+│   ├── it3/                 #   Itération 3 : kill chain complète, architecture déterministe
+│   └── agentic_ai/          #   Itération 4 : agent autonome par tool-calling — livrable central
+├── images/                  # Images Docker du laboratoire (web/ssh-eurostar, suricata-sensor, workstation-it)
+├── scenarios/               # Scripts d'attaque et résultats (Scénarios A à D)
 ├── wazuh/                   # Configuration SIEM (règles, décodeurs, config réseau)
-├── ai-agent/                # Agent IA LangChain + Ollama (3 itérations)
-├── scenarios/               # Scripts d'attaque et résultats
-│   ├── A_nmap/
-│   ├── B_hydra/
-│   ├── C_sqlmap/
-│   └── D_metasploit/
-├── results/                 # Bilans d'itération, analyses IA (Isolation Forest, LLM)
+├── ansible/                 # Inventaire (playbooks à venir, Issue #39)
 ├── gns3/                    # Topologie réseau GNS3
-├── docs/                    # Runbooks et documentation de dépannage
+├── docs/                    # Documentation académique, runbooks, dépannage
 └── report/                  # Sources LaTeX du rapport final (à venir, Sprint 6)
 ```
+
+Chaque dossier a son propre README détaillant son contenu.
 
 ---
 
 ## Documents académiques
 
 Les documents produits en amont de la phase pratique, dans le cadre des évaluations
-EPHEC, sont disponibles dans `docs/` :
+EPHEC, sont disponibles dans `docs/` (voir [`docs/README.md`](docs/README.md) pour
+l'index complet) :
 
 - `cdc_tfe_arno_starkel_final.pdf` — Cahier des charges
 - `analyse_tfe_arno_starkel_final.pdf` — Analyse
 - `schema_architecture_labo.pdf` — Schéma d'architecture réseau
+
+`docs/` contient aussi des runbooks et fiches de dépannage documentant la démarche de
+validation et de troubleshooting du lab.
 
 Le schéma d'architecture sera régénéré à partir des sources LaTeX du rapport final une
 fois celui-ci rédigé (Sprint 6).
