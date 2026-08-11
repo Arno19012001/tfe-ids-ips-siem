@@ -1,0 +1,218 @@
+{
+  "window": {
+    "start": "2026-08-11T03:30:42Z",
+    "end": "2026-08-11T09:30:42Z"
+  },
+  "attacker_ip_retenue": "192.168.1.50",
+  "campagnes_detectees": [
+    {
+      "src_ip": "192.168.1.50",
+      "nb_alertes": 74,
+      "phases_couvertes": [
+        "Reconnaissance",
+        "Initial Access",
+        "Execution",
+        "Command and Control"
+      ],
+      "nb_phases": 4,
+      "first_timestamp": "2026-08-11T09:20:50.629+0000",
+      "last_timestamp": "2026-08-11T09:28:20.707+0000"
+    }
+  ],
+  "autres_sources_presentes": false,
+  "phases": [
+    {
+      "ordre": 1,
+      "phase": "Reconnaissance",
+      "scenario": "A",
+      "sids": [
+        "1000101",
+        "1000104"
+      ],
+      "nb_alertes": 42,
+      "first_timestamp": "2026-08-11T09:20:52.629+0000",
+      "last_timestamp": "2026-08-11T09:28:20.707+0000",
+      "attacker_ip": "192.168.1.50",
+      "target": "DMZ_NET (10.0.10.0/24) -- balayage réseau, pas un hôte unique",
+      "agent_collecteur": [
+        "suricata-sensor"
+      ],
+      "tactiques": [
+        "TA0007_Discovery"
+      ],
+      "techniques": [
+        "T1046"
+      ],
+      "descriptions": [
+        "SCENARIO_A Nmap SYN Scan Detected",
+        "SCENARIO_A Nmap Service/Version Detection Probe"
+      ],
+      "correlations_wazuh": [],
+      "succes_confirme": false,
+      "statut_aboutissement": "indetermine",
+      "phase_instrumentee_pour_succes": false,
+      "note_couverture_correlation": "aucune règle de corrélation Wazuh ne statue sur l'aboutissement d'une phase de reconnaissance (la règle 100050 isole le SID 1000101 pour alimenter la corrélation 100051, elle ne confirme pas un succès)",
+      "chevauche_phase_precedente": false,
+      "description": "L'activité détectée dans cette phase est un balayage réseau, avec des scans SYN effectués par Nmap vers le réseau DMZ (10.0.10.0/24). Les règles de corrélation Wazuh n'étant pas en mesure de confirmer l'aboutissement d'une phase de reconnaissance, le SIEM ne peut se prononcer sur son issue."
+    },
+    {
+      "ordre": 2,
+      "phase": "Initial Access",
+      "scenario": "B",
+      "sids": [
+        "1000201"
+      ],
+      "nb_alertes": 22,
+      "first_timestamp": "2026-08-11T09:20:50.629+0000",
+      "last_timestamp": "2026-08-11T09:26:38.695+0000",
+      "attacker_ip": "192.168.1.50",
+      "target": "ssh-eurostar (10.0.10.20:22)",
+      "agent_collecteur": [
+        "suricata-sensor"
+      ],
+      "tactiques": [
+        "TA0006_CredentialAccess"
+      ],
+      "techniques": [
+        "T1110.001"
+      ],
+      "descriptions": [
+        "SCENARIO_B SSH Brute Force - High Connection Rate"
+      ],
+      "correlations_wazuh": [
+        {
+          "rule_id": "100051",
+          "rule_level": "15",
+          "meaning": "Kill chain confirmée : reconnaissance (Scénario A) suivie d'une compromission SSH par force brute aboutie (Scénario B)",
+          "timestamp": "2026-08-11T09:26:50.659+0000",
+          "occurrences": 1
+        }
+      ],
+      "succes_confirme": true,
+      "statut_aboutissement": "confirme",
+      "phase_instrumentee_pour_succes": true,
+      "note_couverture_correlation": "règle 100051 (corrélation A->B avec same_source_ip) capable de confirmer une compromission SSH aboutie",
+      "chevauche_phase_precedente": true,
+      "description": "Cette phase correspond à une tentative de compromission SSH par force brute. Le scénario B a démarré avant la fin de la phase précédente (chevauchement temporel réel), les deux scénarios se recouvrent partiellement dans le trafic capturé. La règle Wazuh 100051 a confirmé l'aboutissement réussi de cette phase."
+    },
+    {
+      "ordre": 3,
+      "phase": "Execution",
+      "scenario": "C",
+      "sids": [
+        "1000301"
+      ],
+      "nb_alertes": 8,
+      "first_timestamp": "2026-08-11T09:27:10.697+0000",
+      "last_timestamp": "2026-08-11T09:27:32.704+0000",
+      "attacker_ip": "192.168.1.50",
+      "target": "web-eurostar (10.0.10.10:80/443)",
+      "agent_collecteur": [
+        "suricata-sensor"
+      ],
+      "tactiques": [
+        "TA0001_InitialAccess"
+      ],
+      "techniques": [
+        "T1190"
+      ],
+      "descriptions": [
+        "SCENARIO_C SQLMAP User-Agent Detected"
+      ],
+      "correlations_wazuh": [],
+      "succes_confirme": false,
+      "statut_aboutissement": "indetermine",
+      "phase_instrumentee_pour_succes": false,
+      "note_couverture_correlation": "AUCUNE règle de corrélation Wazuh n'existe pour le Scénario C (sqlmap) — le SIEM n'est pas instrumenté pour statuer sur l'aboutissement d'une injection SQL dans ce lab",
+      "chevauche_phase_precedente": false,
+      "description": "L'activité détectée dans cette phase est une tentative d'injection SQL, avec un User-Agent SQLMAP détecté. Le SIEM n'est pas instrumenté pour statuer sur l'aboutissement d'une injection SQL dans ce lab, donc il ne peut se prononcer sur son issue."
+    },
+    {
+      "ordre": 4,
+      "phase": "Command and Control",
+      "scenario": "D",
+      "sids": [
+        "1000401",
+        "1000402"
+      ],
+      "nb_alertes": 4,
+      "first_timestamp": "2026-08-11T09:28:02.707+0000",
+      "last_timestamp": "2026-08-11T09:28:26.756+0000",
+      "attacker_ip": "192.168.1.50",
+      "target": "metasploitable2 (10.0.10.30:21)",
+      "agent_collecteur": [
+        "suricata-sensor"
+      ],
+      "tactiques": [
+        "TA0001_InitialAccess"
+      ],
+      "techniques": [
+        "T1190"
+      ],
+      "descriptions": [
+        "SCENARIO_D VSFTPD 2.3.4 Backdoor Trigger",
+        "SCENARIO_D VSFTPD Privilege Separation Crash"
+      ],
+      "correlations_wazuh": [
+        {
+          "rule_id": "100053",
+          "rule_level": "15",
+          "meaning": "Accès initial confirmé : backdoor VSFTPD déclenchée ET crash de séparation de privilèges observé sur le même flux (Scénario D)",
+          "timestamp": "2026-08-11T09:28:26.708+0000",
+          "occurrences": 2
+        }
+      ],
+      "succes_confirme": true,
+      "statut_aboutissement": "confirme",
+      "phase_instrumentee_pour_succes": true,
+      "note_couverture_correlation": "règles 100053 (backdoor VSFTPD + crash corrélés sur le même flow_id) et 100055 (création d'utilisateur, persistance) capables de confirmer un aboutissement",
+      "chevauche_phase_precedente": false,
+      "description": "Cette phase correspond à une tentative de déclenchement d'une backdoor VSFTPD et à un crash de séparation de privilèges observé. La règle Wazuh 100053 a confirmé l'aboutissement réussi de cette phase."
+    }
+  ],
+  "resume_narratif": "L'attaque a commencé par une reconnaissance du réseau DMZ, suivie d'une tentative de compromission SSH par force brute qui a abouti. Ensuite, une tentative d'injection SQL a été détectée, mais le SIEM n'a pas pu confirmer son issue. Finalement, une backdoor VSFTPD a été déclenchée et un crash de séparation de privilèges observé, confirmant l'aboutissement réussi de la phase finale.",
+  "couverture": "Cette attaque a suivi le modèle d'une kill chain classique, avec des phases de reconnaissance, d'accès initial, d'exécution et de contrôle. Les règles de corrélation Wazuh ont permis de confirmer l'aboutissement réussi de certaines phases, tandis que d'autres n'ont pas pu être confirmées en raison du manque d'instrumentation.",
+  "phases_avec_preuve": 4,
+  "phases_avec_succes_confirme": 2,
+  "phases_indeterminees": 2,
+  "phases_sans_activite": 0,
+  "phases_non_confirmees": 0,
+  "phases_totales": 4,
+  "chevauchements_detectes": [
+    2
+  ],
+  "contexte_alertes_non_couvertes": {
+    "disponible": true,
+    "total_alertes_fenetre": 329,
+    "alertes_dans_scenarios": 76,
+    "alertes_non_couvertes_par_sid": 253,
+    "part_non_couverte_pct": 76.9,
+    "niveau_max_non_couvert": 15,
+    "top_regles_non_couvertes": [
+      {
+        "description": "sshd: authentication failed.",
+        "count": 137
+      },
+      {
+        "description": "PAM: User login failed.",
+        "count": 21
+      },
+      {
+        "description": "Maximum authentication attempts exceeded.",
+        "count": 20
+      },
+      {
+        "description": "syslog: User authentication failure.",
+        "count": 20
+      },
+      {
+        "description": "syslog: User missed the password more than one time",
+        "count": 18
+      }
+    ],
+    "avertissement": "Ce rapport reconstruit la kill chain à partir des 11 SID Suricata des 4 scénarios connus, soit la vision NIDS (réseau) uniquement. Les alertes comptées ci-dessus ne sont PAS nécessairement une activité étrangère aux scénarios : une part importante correspond typiquement à la face HIDS des mêmes attaques (règles natives Wazuh sur les hôtes, ex : 5760 sshd, 40112, PAM), complémentaire de la détection réseau. Le solde peut relever d'une activité réellement distincte, non analysée ici (raisonnement en monde fermé). Voir le top des règles ci-dessus pour trancher au cas par cas."
+  },
+  "model": "llama3.1:8b",
+  "latency_seconds": 425.69174313545227,
+  "generated_at": "2026-08-11T09:37:48Z"
+}
