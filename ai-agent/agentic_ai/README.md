@@ -1,19 +1,22 @@
-# Agentic AI — investigation autonome par tool-calling (Itération 4)
+# Agentic AI — investigation autonome par tool-calling (Itération 4 — livrable central du TFE)
 
-> Adapté de [octopus237/Agentic-AI](https://github.com/octopus237/Agentic-AI). Piste
-> exploratoire menée **en parallèle** de `it3/killchain_reconstruction.py`, qui reste
-> le livrable déterministe validé de l'Itération 3 (Issue #27). Ce dossier ne remplace
-> rien : il coexiste avec `mvp/` (Itération 1), `it2/` (Itération 2) et `it3/`
-> (Itération 3).
+> Adapté de [octopus237/Agentic-AI](https://github.com/octopus237/Agentic-AI). Ce
+> dossier constitue le **livrable central de ce TFE** : un agent IA autonome qui mène
+> lui-même son investigation SOC (recherche, agrégation, corrélation inter-hôtes) sur
+> les alertes Wazuh, au lieu de suivre un pipeline figé à l'avance. Il s'appuie sur les
+> enseignements des itérations précédentes — en particulier la séparation
+> déterministe/LLM validée en `it2/` et `it3/`. `it3/killchain_reconstruction.py`
+> reste une approche complémentaire, entièrement déterministe, qui sert de référence
+> de comparaison et de base de repli validée sur les 4 scénarios.
 
 ## Statut
 
-| | `it3/killchain_reconstruction.py` (Itération 3) | `agentic_ai/` (Itération 4) |
+| | `agentic_ai/` (Itération 4 — livrable central) | `it3/killchain_reconstruction.py` (Itération 3) |
 |---|---|---|
-| Rôle | Livrable déterministe | Piste exploratoire |
-| Modèle | Llama 3.1:8b | Qwen3:8b |
-| Architecture | Python déterministe (calculs/structure) + LLM restreint à la prose | Boucle agentique : le LLM choisit lui-même ses appels d'outils |
-| Validation | Empirique, sur les 4 scénarios | Empirique, partielle — voir `results/README.md` |
+| Rôle | Investigation autonome — différenciateur du TFE | Pipeline déterministe complémentaire |
+| Modèle | Qwen3:8b | Llama 3.1:8b |
+| Architecture | Boucle agentique : le LLM choisit lui-même ses appels d'outils | Python déterministe (calculs/structure) + LLM restreint à la prose |
+| Validation | Empirique, partielle à ce stade — voir `results/README.md` | Empirique, complète sur les 4 scénarios |
 
 ## Contenu du dossier
 
