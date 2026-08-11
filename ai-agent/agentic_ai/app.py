@@ -1,3 +1,11 @@
+"""
+app.py — Interface web de l'agent agentique (Itération 4, piste exploratoire).
+Adapté de octopus237/Agentic-AI (https://github.com/octopus237/Agentic-AI).
+
+Serveur Flask : streaming SSE de l'investigation en direct, historique des
+investigations, planification automatique (triage périodique), et gestion
+du processus en démon (start/stop/restart/status).
+"""
 import os, sys, json, queue, threading, time, logging, argparse
 from datetime import datetime
 from pathlib import Path
@@ -5,10 +13,10 @@ from collections import OrderedDict
 from flask import Flask, Response, request, render_template_string, jsonify
 from flask_cors import CORS
 
-# ── Bootstrap ─────────────────────────────────────────────────────────────────
+# ── Initialisation ─────────────────────────────────────────────────────────────────
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import client as ag        # owns .env loading + config dict C
-import agent_tools as agent   # the agentic tool-calling loop
+import client as ag        # gère le chargement du .env et le dictionnaire de configuration C
+import agent_tools as agent   # la boucle agentique de tool-calling
 
 app  = Flask(__name__)
 CORS(app)
@@ -21,10 +29,10 @@ UI_PORT       = ag.C["UI_PORT"]
 UI_HOST       = ag.C["UI_HOST"]
 
 
-# ── Shared state ──────────────────────────────────────────────────────────────
+# ── État partagé ──────────────────────────────────────────────────────────────
 class State:
     def __init__(self):
-        self.lock       = threading.Lock()   # one investigation at a time
+        self.lock       = threading.Lock()   # une seule investigation à la fois
         self.log_file   = ""
         self.sched_cfg  = {"enabled": False, "interval_hours": 8, "hours": 24}
         self.sched_wake = threading.Event()
@@ -45,7 +53,7 @@ class State:
 
     def _save_history(self):
         try:
-            items = list(self.history.values())[-50:]   # keep last 50
+            items = list(self.history.values())[-50:]   # garde les 50 dernières
             Path(self.hist_file).write_text(json.dumps(items, indent=2))
         except Exception as e:
             log.warning("Could not save history: %s", e)
@@ -54,19 +62,20 @@ ST = State()
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-#  THE AGENTIC RUN  (shared by /agent and the scheduler)
+#  L'EXÉCUTION AGENTIQUE  (partagée par /agent et le planificateur)
 # ──────────────────────────────────────────────────────────────────────────────
 def _run_agentic(question, run_id, q=None):
     """
-    Execute one agentic investigation. Streams events into queue `q` (if given)
-    as SSE-ready text, and saves the final answer + audit trail to history.
+    Exécute une investigation agentique. Diffuse les événements dans la file
+    `q` (si fournie) sous forme de texte prêt pour le SSE, et enregistre la
+    réponse finale + le journal des appels dans l'historique.
     """
     ag.STOP_FLAG.clear()
-    trace_lines = []     # human-readable trace for the live panel
-    audit       = []     # structured tool-call record for the report
+    trace_lines = []     # trace lisible pour le panneau en direct
+    audit       = []     # journal structuré des appels d'outils, pour le rapport
 
     def emit(kind, payload):
-        # Build a readable line per event kind, push to the live queue.
+        # Construit une ligne lisible pour chaque type d'événement, la pousse dans la file en direct.
         line = ""
         if kind == "thinking":
             line = f"\n[réflexion] {payload}\n"
@@ -97,7 +106,7 @@ def _run_agentic(question, run_id, q=None):
             q.put(f"\n[error] {e}\n")
         final = f"[error: {e}]"
 
-    # Compose the saved report: the verdict, then the audit trail.
+    # Compose le rapport enregistré : le verdict, puis le journal des appels.
     audit_text = "\n".join(
         f"{i+1}. {a['tool']}({json.dumps(a['args'])})" for i, a in enumerate(audit)
     ) or "(aucun appel d'outil enregistré)"
@@ -123,7 +132,7 @@ def _run_agentic(question, run_id, q=None):
 # ── Routes ────────────────────────────────────────────────────────────────────
 @app.route("/agent")
 def agent_stream():
-    """SSE endpoint: run an agentic investigation, stream the live trace."""
+    """Point de terminaison SSE : lance une investigation agentique et diffuse la trace en direct."""
     question = (request.args.get("q") or "").strip()
     if not question:
         def bad():
@@ -151,7 +160,7 @@ def agent_stream():
 
     def generate():
         try:
-            # Send the run_id first so the client can link to the report.
+            # Envoie d'abord le run_id pour que le client puisse le relier au rapport.
             yield f"data: __RUNID__{run_id}\n\n"
             while True:
                 try:
@@ -218,9 +227,9 @@ def status():
                     "schedule": ST.sched_cfg})
 
 
-# ── Scheduler ─────────────────────────────────────────────────────────────────
+# ── Planificateur ─────────────────────────────────────────────────────────────────
 def _scheduler():
-    """Fires an agentic triage on a timer: 'perform alert triage on the last N hours'."""
+    """Déclenche un triage agentique à intervalles réguliers : 'perform alert triage on the last N hours'."""
     while True:
         cfg = ST.sched_cfg
         if not cfg["enabled"]:
@@ -246,7 +255,7 @@ def _scheduler():
                 ST._last_sched = time.time()
 
 
-# ── Page ──────────────────────────────────────────────────────────────────────
+# ── Page ─────────────────────────────────────────────────────────────────────
 HTML = r"""<!doctype html>
 <html lang="en">
 <head>
@@ -752,13 +761,13 @@ LOG_FILE  = os.path.join(os.path.dirname(os.path.abspath(__file__)), "agent.log"
 def _read_pid():
     try:
         pid = int(Path(PID_FILE).read_text().strip())
-        os.kill(pid, 0)        # raises if not running
+        os.kill(pid, 0)        # lève une exception si non actif
         return pid
     except Exception:
         return None
 
 def _serve(args):
-    """Actually start the Flask server (foreground in this process)."""
+    """Démarre effectivement le serveur Flask (premier plan, dans ce processus)."""
     ST.log_file = args.log_file
     threading.Thread(target=_scheduler, daemon=True).start()
     print("Analyste Sécurité Agentique Wazuh")
@@ -768,7 +777,7 @@ def _serve(args):
     app.run(host=args.host, port=args.port, debug=False, threaded=True)
 
 def main():
-    # Accept both styles: "app.py stop" and "app.py --stop".
+    # Accepte les deux formes : "app.py stop" et "app.py --stop".
     _aliases = {"--start":"start","--stop":"stop","--restart":"restart",
                 "--status":"status","--run":"run"}
     sys.argv[1:] = [_aliases.get(a, a) for a in sys.argv[1:]]
@@ -783,7 +792,7 @@ def main():
     p.add_argument("--log-file", default="")
     args = p.parse_args()
 
-    # ── stop ──────────────────────────────────────────────────────────────────
+    # ── arrêt ──────────────────────────────────────────────────────────────────
     if args.command == "stop":
         pid = _read_pid()
         if not pid:
@@ -792,7 +801,7 @@ def main():
             return
         import signal as _sig
         os.kill(pid, _sig.SIGTERM)
-        for _ in range(20):                 # wait up to ~5s for clean exit
+        for _ in range(20):                 # attend jusqu'à ~5s pour un arrêt propre
             time.sleep(0.25)
             try: os.kill(pid, 0)
             except OSError: break
@@ -802,14 +811,14 @@ def main():
         print(f"Arrêté (PID {pid}).")
         return
 
-    # ── status ────────────────────────────────────────────────────────────────
+    # ── statut ────────────────────────────────────────────────────────────────
     if args.command == "status":
         pid = _read_pid()
         print(f"En cours d'exécution (PID {pid}). Interface : http://{args.host}:{args.port}"
               if pid else "Non démarré.")
         return
 
-    # ── restart ─────────────────────────────────────────────────────────────--
+    # ── redémarrage ─────────────────────────────────────────────────────────────--
     if args.command == "restart":
         pid = _read_pid()
         if pid:
@@ -819,21 +828,22 @@ def main():
             except OSError: pass
             Path(PID_FILE).unlink(missing_ok=True)
             print(f"Ancienne instance arrêtée (PID {pid}).")
-        args.command = "start"   # fall through to start
+        args.command = "start"   # poursuit vers start
 
-    # ── start (background) ─────────────────────────────────────────────────────
+    # ── démarrage (arrière-plan) ─────────────────────────────────────────────────
     if args.command == "start":
         if _read_pid():
             print(f"Déjà en cours d'exécution (PID {_read_pid()}). Utilisez 'stop' ou 'restart'.")
             return
-        # Re-launch this script in 'run' mode as a detached child, logging to file.
+        # Relance ce script en mode 'run' comme un processus enfant détaché,
+        # avec journalisation vers un fichier.
         import subprocess
         logf = open(args.log_file or LOG_FILE, "a")
         child = subprocess.Popen(
             [sys.executable, os.path.abspath(__file__), "run",
              "--port", str(args.port), "--host", args.host],
             stdout=logf, stderr=logf, stdin=subprocess.DEVNULL,
-            start_new_session=True)          # detach from this terminal
+            start_new_session=True)          # se détache de ce terminal
         Path(PID_FILE).write_text(str(child.pid))
         time.sleep(1.5)
         if _read_pid():
@@ -845,9 +855,10 @@ def main():
             print("Échec du démarrage — consultez le fichier journal.")
         return
 
-    # ── run (foreground, default) ──────────────────────────────────────────────
-    # When launched as a background child we are the server process; record our
-    # own PID so 'stop' can find us even if the parent already exited.
+    # ── exécution (premier plan, par défaut) ─────────────────────────────────────
+    # Lorsqu'il est lancé comme processus enfant en arrière-plan, ce processus
+    # est le serveur lui-même ; on enregistre son propre PID pour que 'stop'
+    # puisse le retrouver même si le parent s'est déjà terminé.
     Path(PID_FILE).write_text(str(os.getpid()))
     import atexit, signal as _sig
     atexit.register(lambda: Path(PID_FILE).unlink(missing_ok=True))

@@ -1,3 +1,12 @@
+"""
+client.py — Couche données de l'agent agentique (Itération 4, piste exploratoire).
+Adapté de octopus237/Agentic-AI (https://github.com/octopus237/Agentic-AI).
+
+Regroupe l'authentification à l'API Wazuh (port 55000), les requêtes vers le
+Wazuh Indexer/OpenSearch (port 9200), l'inventaire syscollector et le calcul
+de la fréquence de base des règles. Bibliothèque pure, importée par
+agent_tools.py et app.py — aucun point d'entrée CLI ici.
+"""
 import os, sys, json, argparse, requests, urllib3, logging, time
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
@@ -5,7 +14,7 @@ import ollama
 
 urllib3.disable_warnings()
 
-# -- Config --------------------------------------------------------------------
+# -- Configuration ---------------------------------------------------------------
 def _env(p=".env"):
     if Path(p).exists():
         for line in Path(p).read_text().splitlines():
@@ -31,7 +40,7 @@ SSL     = os.getenv("WAZUH_SSL","false").lower() == "true"
 MIN_SEV = int(os.getenv("MIN_SEVERITY","3"))
 HOURS   = int(os.getenv("LOOK_BACK_HOURS","24"))
 
-# -- Logger --------------------------------------------------------------------
+# -- Journalisation --------------------------------------------------------------------
 def _setup_logger(debug=False):
     log = logging.getLogger("client")
     log.setLevel(logging.DEBUG if debug else logging.WARNING)
@@ -53,12 +62,13 @@ def _now():    return datetime.now(timezone.utc)
 def _since(h): return (_now()-timedelta(hours=h)).strftime("%Y-%m-%dT%H:%M:%SZ")
 NL = "\n"
 
-# -- API helpers ---------------------------------------------------------------
+# -- Fonctions utilitaires API ---------------------------------------------------------------
 def _auth():
     global _tok, _tok_exp
     if not _tok or time.time() >= _tok_exp-60:
-        # Wazuh's authenticate endpoint can intermittently 500 under load —
-        # retry a few times with backoff before giving up.
+        # Le endpoint d'authentification de Wazuh peut renvoyer une erreur 500
+        # de façon intermittente sous charge — on retente plusieurs fois avec
+        # un délai croissant avant d'abandonner.
         last_err = None
         for attempt in range(4):
             try:
@@ -127,13 +137,13 @@ def ix_agg(q, aggs):
     log.debug("AGG -> %dms", int((time.perf_counter()-t0)*1000))
     return res.get("aggregations",{})
 
-# -- Host inventory (used by the agentic get_inventory tool) -------------------
+# -- Inventaire hôte (utilisé par l'outil agentique get_inventory) -------------------
 def inventory(kind, agent_id):
     """
-    Raw host inventory via syscollector/syscheck. The caller (the LLM,
-    via the get_inventory tool) inspects the names/ports/paths and decides
-    what is unusual for the host.
-    kind: "packages" | "ports" | "processes" | "files"
+    Inventaire hôte brut via syscollector/syscheck. L'appelant (le LLM, via
+    l'outil get_inventory) inspecte lui-même les noms/ports/chemins et décide
+    ce qui est inhabituel pour cet hôte.
+    kind : "packages" | "ports" | "processes" | "files"
     """
     if not agent_id:
         return {"error": "Inventory queries require an agent ID"}
@@ -187,11 +197,11 @@ def inventory(kind, agent_id):
         return {"error": str(e), "kind": kind, "agent": aid}
 
 
-# -- Rule baseline frequency (used by the agentic get_rule_frequency tool) -----
+# -- Fréquence de base des règles (utilisée par l'outil agentique get_rule_frequency) -----
 def _rule_baseline_freq(rule_groups, baseline_days=30):
-    """How often does this rule group fire over the baseline window?
-    Used for rarity scoring — common rules get a noise penalty.
-    Returns events-per-day rate."""
+    """À quelle fréquence ce groupe de règles se déclenche-t-il sur la fenêtre
+    de référence ? Sert au calcul de rareté — les règles courantes reçoivent
+    une pénalité de bruit. Retourne un taux d'événements par jour."""
     since = (datetime.now(timezone.utc) - timedelta(days=baseline_days)).isoformat()
     q = {"bool":{"must":[{"range":{"timestamp":{"gte":since}}},
                          {"match":{"rule.groups":rule_groups}}]}}
@@ -202,10 +212,10 @@ def _rule_baseline_freq(rule_groups, baseline_days=30):
     except Exception:
         return 0.0
 
-# -- Stop flag (set by the UI Stop button; checked inside the agentic loop) ----
+# -- Indicateur d'arrêt (activé par le bouton Arrêter de l'UI ; vérifié dans la boucle agentique) ----
 import threading as _threading
 STOP_FLAG = _threading.Event()
 
 if __name__ == "__main__":
-    # client.py is a library for app.py / agent_tools.py — it has no CLI.
-    print("client.py is a data-layer module; run app.py instead.")
+    # client.py est une bibliothèque pour app.py / agent_tools.py — pas de CLI ici.
+    print("client.py est un module de couche données ; lancez plutôt app.py.")

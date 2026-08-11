@@ -1,29 +1,23 @@
-# Résultats — Agentic AI (Qwen3, tool-calling)
+# Résultats — Agent IA agentique (Itération 4, Qwen3 8B)
 
-Résultats bruts des tests de validation empirique de `ai-agent/agentic_ai/`
-(piste exploratoire/parallèle à `killchain_reconstruction.py`, Issue #27).
-Contexte complet dans l'[Issue #46](../../../../issues/46).
+Ce dossier contient les captures d'écran des tests de l'agent IA « agentique »
+(voir le [README d'ensemble](../README.md) pour le contexte). Contrairement à la
+reconstruction de kill chain de l'Itération 3, qui suit toujours les mêmes étapes
+programmées à l'avance, ici c'est le modèle d'IA qui décide lui-même, à chaque
+question, quelles informations aller chercher dans Wazuh avant de répondre.
 
-## Captures d'écran
+## Ce que montrent ces captures
 
-| Fichier | Description |
+| Capture | Ce qu'elle illustre |
 |---|---|
-| `2026-08-10_triage-severite10-sortie-live.png` | Panneau SORTIE en direct — prompt "Liste les agents actifs et corrèle les alertes de sévérité 10 sur les dernières 24 heures". 4 appels d'outils structurés (`get_active_agents`, `aggregate_alerts`, `get_agent_timeline` ×2), verdict final en français. ~30 min avec Qwen3 8B, CPU-only. |
-| `2026-08-10_triage-severite10-rapport-rendu.png` | Même investigation, rendu Markdown dans l'onglet Rapports (historique + journal des 4 appels d'outils). |
-| `2026-08-10_list-agents-echec-401.png` | Échec initial de `list_agents` (401 Unauthorized) — `.env` contenait encore `WAZUH_PASS=<A_COMPLETER>` non remplacé. Le modèle n'a pas halluciné de fausse liste d'agents face à l'échec, comportement correct. |
-| `2026-08-10_list-agents-succes.png` | Même prompt après correction du `.env` — succès, `list_agents` répond en un seul appel avec les 4 agents réels du lab (dont `ssh-eurostar`/`web-eurostar` en `disconnected`, signalé sans invention de cause par le modèle). |
-| `2026-08-10_historique-investigations-multiples.png` | Onglet Rapports, historique de 5 investigations successives (11h56 à 13h42) — démontre la persistance de `investigations.json` entre les runs et la stabilité de l'agent sur plusieurs sollicitations consécutives. |
-| `2026-08-10_reconstruction-killchain-aucune-attaque.png` | Prompt "Peux-tu reconstruire la kill chain des attaques qui ont eu lieu ces dernières 24h ?" — 4 appels d'outils (`search_alerts`, `aggregate_alerts` ×2, `get_agent_timeline`). Comportement notable : l'agent a repéré des alertes réelles de niveau 12 (tactique "Impact", liées à une saturation mémoire système — probable résidu des tests de charge RAM menés en parallèle sur ce même hôte) et a **correctement refusé de les interpréter comme une kill chain**, recommandant une vérification des ressources système plutôt qu'une fausse alerte de sécurité. Contre-exemple concret aux hallucinations documentées avec Llama 3.1 le 09/08. |
+| `2026-08-10_triage-severite10-sortie-live.png` | L'agent répond à la question « Liste les agents actifs et corrèle les alertes de sévérité 10 sur les dernières 24 heures ». On le voit enchaîner 4 appels d'outils (recherche des agents actifs, agrégation, puis chronologie sur deux hôtes) avant de rendre un verdict rédigé en français. Durée observée : environ 30 minutes, en calcul CPU uniquement. |
+| `2026-08-10_triage-severite10-rapport-rendu.png` | La même investigation, affichée cette fois sous forme de rapport lisible dans l'onglet « Rapports » de l'interface, avec l'historique des appels d'outils utilisés. |
+| `2026-08-10_list-agents-echec-401.png` | Un test où l'outil `list_agents` échoue proprement (erreur d'authentification, mot de passe non configuré) : l'agent signale l'échec au lieu d'inventer une fausse réponse. |
+| `2026-08-10_list-agents-succes.png` | Le même test après correction du mot de passe : l'agent liste correctement les 4 hôtes du labo, y compris deux marqués comme déconnectés, sans en inventer la cause. |
+| `2026-08-10_historique-investigations-multiples.png` | L'onglet « Rapports » avec 5 investigations successives menées la même journée, montrant que l'historique est bien conservé d'un test à l'autre. |
+| `2026-08-10_reconstruction-killchain-aucune-attaque.png` | Un test où l'agent a repéré de vraies alertes de sévérité élevée, mais a correctement identifié qu'elles étaient liées à une saturation mémoire du système plutôt qu'à une attaque — et l'a signalé comme tel plutôt que d'inventer une kill chain. |
 
-## Limites observées (détail dans l'Issue #46)
+## Pour aller plus loin
 
-- `aggregate_alerts(group_by="agent_id")` retombe silencieusement sur `rule.groups`
-  (mauvais nom de champ dans le code : `agent_id` au lieu de `agent.id`)
-- Un rapport affirme l'absence d'indicateur partagé entre deux hôtes sans que
-  `find_entity_across_agents` (l'outil dédié) apparaisse dans le journal des appels
-
-## À compléter
-
-- Rapport JSON brut (`investigations.json`) de ces runs
-- Mesure du pic RAM sur un run complet (partielle à ce stade : ≥ 7,5 Go observés
-  sur un run interrompu prématurément, budget documenté de 5,5 Go insuffisant)
+Le fonctionnement des outils utilisés par l'agent (recherche, agrégation,
+chronologie, etc.) est détaillé dans le [README d'ensemble d'`agentic_ai/`](../README.md).

@@ -1,3 +1,17 @@
+"""
+agent_tools.py — Outils de function-calling et boucle agentique (Itération 4,
+piste exploratoire). Adapté de octopus237/Agentic-AI
+(https://github.com/octopus237/Agentic-AI).
+
+Expose 9 outils au LLM (schémas JSON) permettant d'interroger Wazuh, et la
+boucle agentique (run_agent) qui laisse le modèle décider lui-même, question
+par question, quels outils appeler avant de rendre son verdict.
+
+Note : les descriptions des outils (champ "description" des schémas JSON,
+plus bas) et SYSTEM_PROMPT sont le texte réellement envoyé au LLM comme
+instructions — ils restent en anglais intentionnellement (comportement
+validé empiriquement) et ne sont donc pas traduits ici.
+"""
 import os
 import sys
 import json
@@ -15,11 +29,12 @@ AGENTIC_MODEL = ag.C["AGENTIC_MODEL"]
 OL_HOST       = ag.C["OL_HOST"]
 MAX_STEPS     = ag.C["AGENTIC_MAX_STEPS"]   # safety cap on the loop
 
-_agent_cache = {}   # name/id (lower) -> id
+_agent_cache = {}   # nom/id (en minuscules) -> id
 
 def _resolve_agent(agent_id):
-    """Accept an agent name or ID; return the real numeric ID string.
-    Falls back to the input (zfilled) if nothing matches."""
+    """Accepte un nom ou un ID d'agent ; retourne le véritable ID numérique
+    sous forme de chaîne. Se rabat sur l'entrée (complétée de zéros) si rien
+    ne correspond."""
     if not agent_id:
         return None
     key = str(agent_id).strip().lower()
@@ -30,7 +45,7 @@ def _resolve_agent(agent_id):
     if key in _agent_cache:
         return _agent_cache[key]
 
-    # Build the map from the indexer (no Wazuh API dependency)
+    # Construit la table de correspondance depuis l'indexer (pas de dépendance à l'API Wazuh)
     try:
         agg = ag.ix_agg({"match_all": {}},
                         {"a": {"terms": {"field": "agent.name", "size": 50},
@@ -48,12 +63,12 @@ def _resolve_agent(agent_id):
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-#  TOOL IMPLEMENTATIONS
+#  IMPLÉMENTATION DES OUTILS
 # ──────────────────────────────────────────────────────────────────────────────
 
 def _tool_search_alerts(query: str = "", hours: int = 24, agent_id: str = None,
                         min_level: int = 0):
-    """Full-text search across alerts (wildcard, keyword-field safe)."""
+    """Recherche plein texte dans les alertes (wildcard, sûr sur les champs keyword)."""
     since = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
     must  = [{"range": {"timestamp": {"gte": since}}}]
     if agent_id:
@@ -102,7 +117,7 @@ def _tool_search_alerts(query: str = "", hours: int = 24, agent_id: str = None,
 
 def _tool_aggregate_alerts(group_by: str = "rule.groups", hours: int = 24,
                            agent_id: str = None, min_level: int = 0, size: int = 15):
-    """Aggregate alert counts by a field to see the shape of activity."""
+    """Agrège le nombre d'alertes par champ pour visualiser la forme de l'activité."""
     since = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
     must  = [{"range": {"timestamp": {"gte": since}}}]
     if agent_id:
@@ -113,8 +128,9 @@ def _tool_aggregate_alerts(group_by: str = "rule.groups", hours: int = 24,
     allowed = {"rule.groups", "rule.description", "agent.name", "agent.id",
                "rule.level", "rule.mitre.tactic", "rule.mitre.technique",
                "data.srcip"}
-    # The model sometimes passes multiple comma-separated fields; take the
-    # first valid one (single-field aggregation only) so it isn't silently wrong.
+    # Le modèle passe parfois plusieurs champs séparés par des virgules ; on
+    # prend le premier valide (agrégation sur un seul champ) pour éviter une
+    # erreur silencieuse.
     requested = [f.strip() for f in str(group_by).split(",")]
     field = next((f for f in requested if f in allowed), "rule.groups")
     agg = ag.ix_agg(bq, {"g": {"terms": {"field": field, "size": size,
@@ -127,7 +143,7 @@ def _tool_aggregate_alerts(group_by: str = "rule.groups", hours: int = 24,
 
 
 def _tool_get_agent_timeline(agent_id: str, hours: int = 6, min_level: int = 0):
-    """Chronological event timeline for one agent — for chain reconstruction."""
+    """Chronologie des événements d'un agent — pour la reconstruction de la chaîne d'attaque."""
     if not agent_id:
         return {"error": "agent_id is required"}
     since = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
@@ -148,15 +164,17 @@ def _tool_get_agent_timeline(agent_id: str, hours: int = 6, min_level: int = 0):
 
 
 def _tool_get_inventory(kind: str, agent_id: str):
-    """Host inventory: packages | ports | processes | files (via syscollector).
-    Returns the RAW inventory rows with no 'suspicious' flagging — the model
-    inspects the actual names/ports/paths and decides what is concerning.
+    """Inventaire hôte : packages | ports | processes | files (via syscollector).
+    Retourne les lignes BRUTES de l'inventaire, sans marquage "suspect" — le
+    modèle inspecte lui-même les noms/ports/chemins et décide de ce qui est
+    préoccupant.
      """
     if kind not in ("packages", "ports", "processes", "files"):
         return {"error": f"kind must be packages/ports/processes/files, got {kind}"}
     res = ag.inventory(kind, _resolve_agent(agent_id))
-    # inventory() already returns raw facts only — no judgment to strip.
-    # Cap rows so a large host doesn't flood the model's context.
+    # inventory() ne retourne déjà que des faits bruts — rien à filtrer.
+    # Plafonne le nombre de lignes pour qu'un hôte volumineux ne sature pas
+    # le contexte du modèle.
     rows = res.get("rows", [])
     if len(rows) > 50:
         res["rows"] = rows[:50]
@@ -183,11 +201,13 @@ def _tool_get_rule_frequency(rule_groups: str, days: int = 30):
 
 def _tool_find_entity_across_agents(entity: str, hours: int = 168):
     """
-    Cross-host correlation: find where a single indicator — an IP, file hash,
-    username, process name, or domain — appears across ALL agents in the window.
-    Use this to tell whether something is isolated to one host or part of a
-    campaign spanning multiple hosts. Returns the per-agent breakdown plus a
-    timeline span; YOU decide if the spread indicates a coordinated campaign.
+    Corrélation inter-hôtes : cherche où un indicateur unique — une IP, un
+    hash de fichier, un nom d'utilisateur, un nom de processus ou un domaine
+    — apparaît sur TOUS les agents dans la fenêtre donnée. Sert à déterminer
+    si un fait est isolé à un hôte ou fait partie d'une campagne étendue à
+    plusieurs hôtes. Retourne la répartition par agent ainsi qu'une étendue
+    temporelle ; C'EST AU MODÈLE de décider si la répartition indique une
+    campagne coordonnée.
     """
     since = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
     e = (entity or "").lower().strip()
@@ -251,8 +271,9 @@ def _tool_get_vulnerabilities(agent_id: str = None, days: int = 30):
 
 
 def _tool_get_active_agents(hours: int = 168):
-    """Discover which agents have activity, straight from the indexer
-    (no Wazuh API token needed — resilient to API auth hiccups)."""
+    """Identifie les agents ayant de l'activité, directement depuis l'indexer
+    (aucun jeton d'API Wazuh requis — résilient aux incidents d'authentification
+    de l'API)."""
     since = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
     agg = ag.ix_agg({"range": {"timestamp": {"gte": since}}},
                     {"agents": {"terms": {"field": "agent.name", "size": 30},
@@ -269,7 +290,7 @@ def _tool_get_active_agents(hours: int = 168):
 
 
 def _tool_list_agents():
-    """List enrolled agents and their status."""
+    """Liste les agents enrôlés et leur statut."""
     try:
         r = ag.wget("/agents", {"limit": 100,
                                 "select": "id,name,status,os.platform,ip"})
@@ -283,7 +304,7 @@ def _tool_list_agents():
         return {"error": str(e)}
 
 
-# ── Tool registry: maps tool name → (function, JSON schema for the model) ──────
+# ── Registre des outils : associe le nom de l'outil → (fonction, schéma JSON pour le modèle) ──────
 TOOLS = {
     "search_alerts": (_tool_search_alerts, {
         "type": "function",
@@ -464,7 +485,7 @@ TOOL_SCHEMAS = [schema for (_fn, schema) in TOOLS.values()]
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-#  THE AGENTIC LOOP
+#  LA BOUCLE AGENTIQUE
 # ──────────────────────────────────────────────────────────────────────────────
 
 SYSTEM_PROMPT = (
@@ -532,22 +553,22 @@ SYSTEM_PROMPT = (
 
 def run_agent(question: str, agent_id: str = None, emit=None):
     """
-    Run the agentic investigation loop.
+    Exécute la boucle d'investigation agentique.
 
-    question : the analyst's natural-language question
-    agent_id : optional scope hint passed into the first user message
-    emit     : optional callback(event_type, payload) for streaming to a UI.
-               event_type is one of: 'thinking', 'tool_call', 'tool_result',
-               'answer', 'done', 'error'. If None, prints to stdout.
+    question : la question de l'analyste, en langage naturel
+    agent_id : indice de portée optionnel, injecté dans le premier message utilisateur
+    emit     : callback optionnel(event_type, payload) pour le streaming vers une UI.
+               event_type vaut 'thinking', 'tool_call', 'tool_result',
+               'answer', 'done' ou 'error'. Si None, affiche sur stdout.
 
-    Returns the final answer string.
+    Retourne la réponse finale sous forme de chaîne.
     """
     def _emit(kind, payload):
         if emit:
             emit(kind, payload)
         else:
             if kind == "thinking":
-                # Show a short preview of the model's reasoning between calls
+                # Affiche un court aperçu du raisonnement du modèle entre deux appels
                 preview = payload[:200].replace("\n", " ")
                 print(f"\n  ~ {preview}{'...' if len(payload) > 200 else ''}")
             elif kind == "tool_call":
@@ -571,7 +592,7 @@ def run_agent(question: str, agent_id: str = None, emit=None):
         {"role": "user",   "content": user_msg},
     ]
 
-    audit = []   # full record of every tool call, for the SIEM trail
+    audit = []   # enregistrement complet de chaque appel d'outil, pour la trace SIEM
 
     for step in range(MAX_STEPS):
         if ag.STOP_FLAG.is_set():
@@ -596,22 +617,23 @@ def run_agent(question: str, agent_id: str = None, emit=None):
         msg = resp.message
         tool_calls = getattr(msg, "tool_calls", None) or []
 
-        # No tool calls → the model is giving its final answer
+        # Aucun appel d'outil → le modèle donne sa réponse finale
         if not tool_calls:
             answer = msg.content or "(no answer)"
             _emit("answer", answer)
             _emit("done", {"steps": step, "audit": audit})
             return answer
 
-        # Append the assistant turn (with its tool-call requests) to history.
-        # If the model also emitted reasoning text, surface it (it often
-        # contains the running hypothesis) so nothing is silently dropped.
+        # Ajoute le tour de l'assistant (avec ses demandes d'appels d'outils)
+        # à l'historique. Si le modèle a aussi produit un texte de
+        # raisonnement, on l'affiche (il contient souvent l'hypothèse en
+        # cours) pour ne rien perdre silencieusement.
         if msg.content and msg.content.strip():
             _emit("thinking", msg.content.strip())
         messages.append({"role": "assistant", "content": msg.content or "",
                          "tool_calls": tool_calls})
 
-        # Execute each requested tool
+        # Exécute chaque outil demandé
         for tc in tool_calls:
             name = tc.function.name
             args = tc.function.arguments
@@ -645,9 +667,10 @@ def run_agent(question: str, agent_id: str = None, emit=None):
             messages.append({"role": "tool", "name": name,
                              "content": json.dumps(result)[:4000]})
 
-    # Hit the step cap — force a final text answer.
-    # Crucially: do NOT pass tools, so the model cannot ask for more calls and
-    # must produce prose. Retry once if it still comes back empty.
+    # Plafond d'étapes atteint — force une réponse textuelle finale.
+    # Point important : ne PAS passer les outils, pour que le modèle ne
+    # puisse pas demander d'autres appels et doive produire du texte.
+    # Retente une fois si la réponse revient toujours vide.
     messages.append({"role": "user",
                      "content": "STOP investigating now — you have reached the "
                                 "step limit. Do NOT request any more tools. Based "
@@ -663,7 +686,7 @@ def run_agent(question: str, agent_id: str = None, emit=None):
             answer = (resp.message.content or "").strip()
             if answer:
                 break
-            # Empty — nudge harder
+            # Vide — on insiste davantage
             messages.append({"role": "user",
                              "content": "Write the final answer as plain text now."})
         except Exception as e:
@@ -679,7 +702,7 @@ def run_agent(question: str, agent_id: str = None, emit=None):
     return answer
 
 
-# ── CLI for standalone testing (before any UI wiring) ─────────────────────────
+# ── CLI pour tests autonomes (avant tout branchement à l'interface) ─────────────────────────
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s  %(levelname)s  %(message)s")
