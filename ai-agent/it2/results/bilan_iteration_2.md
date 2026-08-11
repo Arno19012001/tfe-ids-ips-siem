@@ -7,14 +7,14 @@ Scénarios B (brute force SSH, Hydra) et C (injection SQL, sqlmap), et une premi
 couche d'intelligence artificielle appliquée aux alertes déjà détectées — priorisation
 (Issue #21), corrélation multi-étapes (Issue #22) et reconstruction textuelle de kill
 chain (Issue #23). Ce document synthétise les résultats déjà documentés en détail dans
-`scenarios/B_hydra/results/`, `scenarios/C_sqlmap/results/` et `results/llm_prioritization_it2/`,
+`scenarios/B_hydra/results/`, `scenarios/C_sqlmap/results/` et `ai-agent/it2/results/llm_prioritization/`,
 sans les dupliquer intégralement — se référer aux fichiers sources pour le détail
 méthodologique complet de chaque scénario.
 
 **Hors périmètre** : le Scénario A (scan Nmap + détection par Isolation Forest)
 appartient au MVP / Itération 1 et a été clôturé avant le début de l'Itération 2
 (Issue #15) — ses résultats sont documentés séparément dans
-`results/findings_isolation_forest.md`, non repris ici.
+`ai-agent/mvp/results/findings_isolation_forest.md`, non repris ici.
 
 ## 1. Détection — Scénarios B et C
 
@@ -138,7 +138,7 @@ avant intégration verbatim dans un document final.
 
 - `scenarios/B_hydra/results/rapport_validation.md`
 - `scenarios/C_sqlmap/results/resultats_scenario_C.md` (+ 5 captures d'écran)
-- `results/llm_prioritization_it2/incidents_score_llm_final.csv` (+ version avant correctif)
+- `ai-agent/it2/results/llm_prioritization/incidents_score_llm_final.csv` (+ version avant correctif)
 - `ai-agent/it2/alert_prioritization.py`, `ai-agent/it2/kill_chain_report.py`
 - `wazuh/rules/custom_rules.xml`, `wazuh/decoders/custom_decoders.xml`
 - Issues GitHub : #17, #19, #20 (B/C), #21, #22, #23, #40, #42
