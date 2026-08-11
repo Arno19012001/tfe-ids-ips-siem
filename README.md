@@ -101,17 +101,17 @@ Détail : [`ai-agent/it2/README.md`](ai-agent/it2/README.md)
 
 Détail : [`ai-agent/it3/README.md`](ai-agent/it3/README.md)
 
-### Itération 4 — Agent IA agentique (Sprint 5) 🔄 En cours — **livrable central du TFE**
+### Itération 4 — Agent IA agentique (Sprint 5) ✅ Terminé — **livrable central du TFE**
 - Agent d'investigation autonome par tool-calling : le LLM (Qwen3 8B) choisit
   lui-même ses appels d'outils pour mener une investigation SOC sur les
   alertes Wazuh, plutôt que de suivre un pipeline figé à l'avance
 - 9 outils exposés (recherche, agrégation, chronologie, inventaire hôte,
   corrélation inter-agents, vulnérabilités...)
 - Interface web (Flask, streaming en direct, historique des investigations)
-- Couvre les mécanismes d'aide à la réponse à incident — ✅ validé
-  empiriquement sur 6 tests (4 scénarios + 2 retests, Issue #29, fermée) et
-  une partie du besoin de dashboard SOC (Issue #28)
-- Validation empirique partielle à ce stade
+- Mécanismes d'aide à la réponse à incident validés empiriquement sur
+  6 tests (Issue #29, fermée) ; une partie du besoin de dashboard SOC
+  (Issue #28, toujours ouverte) est couverte par l'interface, un dashboard
+  Wazuh dédié reste à construire
 
 Détail : [`ai-agent/agentic_ai/README.md`](ai-agent/agentic_ai/README.md)
 

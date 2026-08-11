@@ -16,7 +16,7 @@
 | Rôle | Investigation autonome — différenciateur du TFE | Pipeline déterministe complémentaire |
 | Modèle | Qwen3:8b | Llama 3.1:8b |
 | Architecture | Boucle agentique : le LLM choisit lui-même ses appels d'outils | Python déterministe (calculs/structure) + LLM restreint à la prose |
-| Validation | Empirique, partielle à ce stade — voir `results/README.md` | Empirique, complète sur les 4 scénarios |
+| Validation | Empirique, sur les 4 scénarios + 2 retests (Issue #29, fermée) — voir `results/README.md` | Empirique, complète sur les 4 scénarios |
 
 ## Contenu du dossier
 
