@@ -28,11 +28,9 @@ chronologie, etc.) est détaillé dans le [README d'ensemble d'`agentic_ai/`](..
 
 Quatre prompts, un par scénario (A/B/C/D), demandant explicitement à l'agent
 d'investiguer puis de terminer par une recommandation de réponse concrète —
-critère de validation formel de l'Issue #29. Captures disponibles pour B, C
-et D (`2026-08-11_issue29-scenario-{b,c,d}-*.png`) et pour le retest A'
-(`2026-08-11_issue29-retest-a-scenario-reconnaissance.png`) ; les tests A
-(original) et C' (retest) sont documentés à partir du texte collé, sans
-capture.
+critère de validation formel de l'Issue #29. Captures disponibles pour B, C,
+D et les deux retests A'/C' (`2026-08-11_issue29-*.png`) ; seul le test A
+original est documenté à partir du texte collé, sans capture.
 
 | Scénario | Verdict | Recommandations fournies | Fiabilité du raisonnement |
 |---|---|---|---|
@@ -65,7 +63,7 @@ mentionnant explicitement « sqlmap » plutôt que « injection SQL ».
 | Retest | Résultat |
 |---|---|
 | A' | ✅ Détecte correctement la kill chain A→B (règle niveau 15, IP 192.168.1.50) et le verdict correspond cette fois à la preuve citée — la contradiction interne du test A initial ne se reproduit pas. |
-| C' | ✅ Détecte 8 alertes SQLi réelles (règle Wazuh native, niveau 10, agent `web-eurostar`), sur une fenêtre élargie automatiquement à 30 jours après deux recherches infructueuses. La mention explicite de « sqlmap » a orienté l'agent vers `get_agent_timeline` sur l'hôte plutôt qu'une recherche texte, contournant l'angle mort de corrélation Wazuh. Réserve : le verdict affirme qu'aucune alerte n'existe sur l'agent `suricata-sensor`, sans avoir vérifié cet agent spécifiquement — affirmation non appuyée. |
+| C' | ✅ Détecte 8 alertes SQLi réelles (règle Wazuh native, niveau 10, agent `web-eurostar`), sur une fenêtre élargie automatiquement à 30 jours après deux recherches infructueuses. La mention explicite de « sqlmap » a orienté l'agent vers `get_agent_timeline` sur l'hôte plutôt qu'une recherche texte, contournant l'angle mort de corrélation Wazuh. |
 
 **Nuance méthodologique** : dans les deux retests, la stratégie d'outils
 choisie par l'agent a changé en même temps que le prompt (passage à
@@ -75,6 +73,23 @@ stratégie qui explique l'amélioration. Ce que confirment les deux retests :
 le comportement de l'agent est sensible à la formulation de la question, ce
 qui est cohérent avec un LLM 8B et doit être documenté comme une limite
 opérationnelle plutôt qu'ignoré.
+
+**Bug confirmé dans le code (retest C')** : le journal d'outils de C' montre
+deux appels `search_alerts` avec `"agent_id": "015,019"` (comma-séparé, sur
+le modèle de ce qui fonctionne pour `aggregate_alerts(group_by=...)`). Mais
+`_resolve_agent()` dans `agent_tools.py` ne découpe jamais une valeur sur la
+virgule — contrairement au traitement de `group_by`, qui gère explicitement
+ce cas. `_resolve_agent("015,019")` renvoie la chaîne littérale
+`"015,019"`, utilisée dans un filtre `{"term": {"agent.id": "015,019"}}` qui
+ne correspond à aucun document réel : les deux appels étaient condamnés à 0
+résultat indépendamment du texte de recherche. Le verdict final affirme
+« aucune alerte détectée sur l'agent 019 » — cette conclusion est un
+artefact du bug, pas une vérification réelle. Bug jumeau de celui déjà
+documenté sur `aggregate_alerts(group_by="agent_id")`, mais plus trompeur
+car totalement silencieux (aucune erreur renvoyée). À corriger dans
+`_resolve_agent()` : découper sur la virgule et résoudre chaque ID
+individuellement, ou documenter clairement dans le schéma de l'outil que
+`agent_id` n'accepte qu'une seule valeur.
 
 ### Conclusion vis-à-vis du critère de l'Issue #29
 
