@@ -75,7 +75,7 @@ workstation-it
 
 ## Approche itérative
 
-État d'avancement au 11/08/2026 — suivi détaillé via les [GitHub Issues](https://github.com/Arno19012001/tfe-ids-ips-siem/issues) et [Projects](https://github.com/Arno19012001/tfe-ids-ips-siem) du dépôt (Sprints 1 à 6).
+État d'avancement au 16/08/2026 — suivi détaillé via les [GitHub Issues](https://github.com/Arno19012001/tfe-ids-ips-siem/issues) et [Projects](https://github.com/Arno19012001/tfe-ids-ips-siem) du dépôt (Sprints 1 à 6).
 
 ### MVP — Itération 1 (Sprints 1–2) ✅ Terminé
 - Environnement de laboratoire opérationnel
@@ -93,10 +93,10 @@ Détail : [`ai-agent/mvp/README.md`](ai-agent/mvp/README.md)
 
 Détail : [`ai-agent/it2/README.md`](ai-agent/it2/README.md)
 
-### Itération 3 (Sprint 5) 🔄 En cours
+### Itération 3 (Sprint 5) ✅ Terminé (avec limite assumée)
 - Scénario D ajouté ✅
 - Reconstruction automatique complète de la kill chain, architecture déterministe — ✅ validée empiriquement sur les 4 scénarios (Issue #27, fermée)
-- Dashboard SOC complet — 🔄 en cours (Issue #28) : partiellement couvert par l'interface de l'agent agentique (Itération 4), un dashboard Wazuh dédié selon les critères du client reste à construire
+- Dashboard SOC complet — limite assumée (Issue #28, toujours ouverte) : seul le Scénario A est couvert par un dashboard Wazuh dédié ; partiellement compensé par l'interface de l'agent agentique (Itération 4)
 - Sert de base de comparaison validée à l'agent agentique de l'Itération 4
 
 Détail : [`ai-agent/it3/README.md`](ai-agent/it3/README.md)
@@ -115,10 +115,10 @@ Détail : [`ai-agent/it3/README.md`](ai-agent/it3/README.md)
 
 Détail : [`ai-agent/agentic_ai/README.md`](ai-agent/agentic_ai/README.md)
 
-### Rédaction et dépôt (Sprint 6) ⏳ À venir
-- Rédaction des chapitres du rapport final
-- Relecture et mise en page
-- Dépôt (17 août 2026) et préparation de la défense (septembre 2026)
+### Rédaction et dépôt (Sprint 6) 🔄 En cours
+- Rédaction des chapitres du rapport final — ✅ terminée
+- Relecture et mise en page — ✅ terminée
+- Dépôt (17 août 2026) — ⏳ à venir, et préparation de la défense (septembre 2026)
 
 ---
 
@@ -136,8 +136,7 @@ tfe-ids-ips-siem/
 ├── wazuh/                   # Configuration SIEM (règles, décodeurs, config réseau)
 ├── ansible/                 # Inventaire (playbooks à venir, Issue #39)
 ├── gns3/                    # Topologie réseau GNS3
-├── docs/                    # Documentation académique, runbooks, dépannage
-└── report/                  # Sources LaTeX du rapport final (à venir, Sprint 6)
+└── docs/                    # Documentation académique, runbooks, dépannage
 ```
 
 Chaque dossier a son propre README détaillant son contenu.
@@ -157,8 +156,8 @@ l'index complet) :
 `docs/` contient aussi des runbooks et fiches de dépannage documentant la démarche de
 validation et de troubleshooting du lab.
 
-Le schéma d'architecture sera régénéré à partir des sources LaTeX du rapport final une
-fois celui-ci rédigé (Sprint 6).
+Le rapport final et son volume d'annexes ne sont pas versionnés dans ce dépôt (privé) : ils
+sont déposés séparément via Moodle, conformément aux modalités du TFE.
 
 ---
 
