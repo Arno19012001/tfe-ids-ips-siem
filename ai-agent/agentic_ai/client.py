@@ -31,7 +31,7 @@ C = {
     "IX_USER": os.getenv("INDEXER_USER",  "admin"),
     "IX_PASS": os.getenv("INDEXER_PASS",  "admin"),
     "OL_HOST": os.getenv("OLLAMA_HOST",   "http://localhost:11434"),
-    "AGENTIC_MODEL": os.getenv("OLLAMA_MODEL", "qwen3"),
+    "AGENTIC_MODEL": os.getenv("OLLAMA_MODEL", "qwen3:8b"),
     "AGENTIC_MAX_STEPS": int(os.getenv("AGENTIC_MAX_STEPS", "18")),
     "UI_PORT": int(os.getenv("UI_PORT", "5000")),
     "UI_HOST": os.getenv("UI_HOST", "0.0.0.0"),
