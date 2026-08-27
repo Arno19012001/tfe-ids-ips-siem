@@ -24,10 +24,10 @@ def _env(p=".env"):
 _env()
 
 C = {
-    "HOST":    os.getenv("WAZUH_HOST",    "https://localhost:55000"),
+    "HOST":    os.getenv("WAZUH_HOST",    "https://10.0.30.10:55000"),
     "USER":    os.getenv("WAZUH_USER",    "wazuh-agent"),
     "PASSWD":  os.getenv("WAZUH_PASS",    "wazuh"),
-    "IX_HOST": os.getenv("INDEXER_HOST",  "https://localhost:9200"),
+    "IX_HOST": os.getenv("INDEXER_HOST",  "https://10.0.30.10:9200"),
     "IX_USER": os.getenv("INDEXER_USER",  "admin"),
     "IX_PASS": os.getenv("INDEXER_PASS",  "admin"),
     "OL_HOST": os.getenv("OLLAMA_HOST",   "http://localhost:11434"),
