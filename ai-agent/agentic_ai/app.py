@@ -39,7 +39,7 @@ class State:
         self.history    = OrderedDict()
         self.hist_lock  = threading.Lock()
         self.hist_file  = os.path.join(
-            os.path.dirname(os.path.abspath(__file__)), "investigations.json")
+            os.path.dirname(os.path.abspath(__file__)), "data", "investigations.json")
         self._load_history()
 
     def _load_history(self):

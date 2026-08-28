@@ -61,6 +61,13 @@ COPY it2/ /opt/ai-agent/it2/
 COPY it3/ /opt/ai-agent/it3/
 COPY agentic_ai/ /opt/ai-agent/agentic_ai/
 
+# --- Persistance de l'historique des investigations au-delà d'une recréation
+#     du nœud (même logique que /root/.ollama ci-dessus) : le dossier data/
+#     est vide au build, peuplé au premier lancement, puis conservé lors des
+#     recréations ultérieures du conteneur. ---
+RUN mkdir -p /opt/ai-agent/agentic_ai/data
+VOLUME ["/opt/ai-agent/agentic_ai/data"]
+
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
