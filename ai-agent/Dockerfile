@@ -8,6 +8,7 @@ RUN apt-get update && apt-get install -y \
     net-tools \
     curl \
     ca-certificates \
+    openssl \
     python3 \
     python3-pip \
     zstd \
@@ -60,6 +61,18 @@ COPY mvp/ /opt/ai-agent/mvp/
 COPY it2/ /opt/ai-agent/it2/
 COPY it3/ /opt/ai-agent/it3/
 COPY agentic_ai/ /opt/ai-agent/agentic_ai/
+
+# --- Certificat auto-signé pour l'interface HTTPS de l'agent (labo isolé,
+#     cohérent avec les certificats auto-signés déjà utilisés sur l'indexer
+#     Wazuh). Généré une fois au build ; stable tant que l'image n'est pas
+#     reconstruite, pour éviter un avertissement de certificat qui change à
+#     chaque redémarrage. ---
+RUN mkdir -p /opt/ai-agent/agentic_ai/certs && \
+    openssl req -x509 -newkey rsa:2048 -nodes \
+        -keyout /opt/ai-agent/agentic_ai/certs/key.pem \
+        -out /opt/ai-agent/agentic_ai/certs/cert.pem \
+        -days 825 \
+        -subj "/C=BE/O=TFE-Eurostar-Lab/CN=ai-agent.mgmt.local"
 
 # --- Persistance de l'historique des investigations au-delà d'une recréation
 #     du nœud (même logique que /root/.ollama ci-dessus) : le dossier data/

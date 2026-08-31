@@ -27,6 +27,8 @@ log = logging.getLogger("app")
 AGENTIC_MODEL = ag.C["AGENTIC_MODEL"]
 UI_PORT       = ag.C["UI_PORT"]
 UI_HOST       = ag.C["UI_HOST"]
+CERT_FILE     = os.path.join(os.path.dirname(os.path.abspath(__file__)), "certs", "cert.pem")
+KEY_FILE      = os.path.join(os.path.dirname(os.path.abspath(__file__)), "certs", "key.pem")
 
 
 # ── État partagé ──────────────────────────────────────────────────────────────
@@ -771,10 +773,10 @@ def _serve(args):
     ST.log_file = args.log_file
     threading.Thread(target=_scheduler, daemon=True).start()
     print("Analyste Sécurité Agentique Wazuh")
-    print(f"  Interface  : http://{args.host}:{args.port}")
+    print(f"  Interface  : https://{args.host}:{args.port}  (certificat auto-signe)")
     print(f"  Modèle     : {AGENTIC_MODEL}")
     print(f"  Historique : {ST.hist_file}")
-    app.run(host=args.host, port=args.port, debug=False, threaded=True)
+    app.run(host=args.host, port=args.port, debug=False, threaded=True, ssl_context=(CERT_FILE, KEY_FILE) if Path(CERT_FILE).exists() else None)
 
 def main():
     # Accepte les deux formes : "app.py stop" et "app.py --stop".
@@ -814,7 +816,7 @@ def main():
     # ── statut ────────────────────────────────────────────────────────────────
     if args.command == "status":
         pid = _read_pid()
-        print(f"En cours d'exécution (PID {pid}). Interface : http://{args.host}:{args.port}"
+        print(f"En cours d'exécution (PID {pid}). Interface : https://{args.host}:{args.port}"
               if pid else "Non démarré.")
         return
 
@@ -848,7 +850,7 @@ def main():
         time.sleep(1.5)
         if _read_pid():
             print(f"Démarré en arrière-plan (PID {child.pid}).")
-            print(f"  Interface : http://{args.host}:{args.port}")
+            print(f"  Interface : https://{args.host}:{args.port}  (certificat auto-signe)")
             print(f"  Journal   : {args.log_file or LOG_FILE}")
             print(f"  Arrêt     : python3 {os.path.basename(__file__)} stop")
         else:
