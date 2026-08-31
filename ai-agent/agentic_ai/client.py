@@ -15,7 +15,9 @@ import ollama
 urllib3.disable_warnings()
 
 # -- Configuration ---------------------------------------------------------------
-def _env(p=".env"):
+def _env(p=None):
+    if p is None:
+        p = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
     if Path(p).exists():
         for line in Path(p).read_text().splitlines():
             if line.strip() and "=" in line and not line.startswith("#"):
